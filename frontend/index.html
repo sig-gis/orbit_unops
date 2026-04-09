@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UNOPS Export POC</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 32px auto;
+      padding: 0 16px;
+      color: #1a1a1a;
+    }
+    h1 { margin-bottom: 8px; }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    label {
+      display: block;
+      font-size: 0.9rem;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+    input, select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+    button {
+      padding: 10px 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      background: #0b5fff;
+      color: white;
+    }
+    button:disabled { opacity: 0.65; cursor: not-allowed; }
+    .muted { color: #666; font-size: 0.9rem; }
+    .status {
+      font-weight: 700;
+      padding: 5px 8px;
+      border-radius: 6px;
+      display: inline-block;
+      margin-bottom: 10px;
+    }
+    .queued, .running { background: #fff4ce; color: #7a5a00; }
+    .completed { background: #d6f5df; color: #0b5d1e; }
+    .failed { background: #ffe1e1; color: #8d0000; }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #f7f7f8;
+      border-radius: 8px;
+      padding: 10px;
+      border: 1px solid #ececec;
+    }
+  </style>
+</head>
+<body>
+  <h1>UNOPS Export Dashboard (POC)</h1>
+  <p class="muted">Simple frontend to trigger <code>POST /exports</code> and poll <code>GET /exports/{job_id}</code>.</p>
+
+  <div class="card">
+    <div class="grid">
+      <div>
+        <label for="apiBase">API Base URL</label>
+        <input id="apiBase" value="http://127.0.0.1:8000" />
+      </div>
+      <div>
+        <label for="country">Country</label>
+        <input id="country" value="Colombia" />
+      </div>
+      <div>
+        <label for="mapYear">Map Year</label>
+        <input id="mapYear" type="number" value="2019" />
+      </div>
+      <div>
+        <label for="yearStart">Year Start</label>
+        <input id="yearStart" type="number" value="2020" />
+      </div>
+      <div>
+        <label for="yearEnd">Year End</label>
+        <input id="yearEnd" type="number" value="2021" />
+      </div>
+      <div>
+        <label for="threshold">Threshold</label>
+        <input id="threshold" type="number" step="0.01" value="0.75" />
+      </div>
+      <div>
+        <label for="gcsBucket">GCS Bucket</label>
+        <input id="gcsBucket" value="your-gcs-bucket" />
+      </div>
+      <div>
+        <label for="gcsPrefix">GCS Prefix (optional)</label>
+        <input id="gcsPrefix" value="exports/unops" />
+      </div>
+    </div>
+    <br />
+    <button id="startBtn">Start Export</button>
+    <button id="stopBtn" style="background:#666; margin-left:8px;" disabled>Stop Polling</button>
+  </div>
+
+  <div class="card">
+    <div id="statusBadge" class="status queued">idle</div>
+    <div><strong>Job ID:</strong> <span id="jobId">-</span></div>
+    <div><strong>Last Update:</strong> <span id="lastUpdate">-</span></div>
+    <h3>Response</h3>
+    <pre id="output">No request yet.</pre>
+  </div>
+
+  <script>
+    const statusBadge = document.getElementById("statusBadge");
+    const output = document.getElementById("output");
+    const jobIdEl = document.getElementById("jobId");
+    const lastUpdateEl = document.getElementById("lastUpdate");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    let pollTimer = null;
+
+    function setStatus(statusText) {
+      statusBadge.textContent = statusText;
+      statusBadge.className = `status ${statusText}`;
+    }
+
+    function jsonPretty(v) {
+      return JSON.stringify(v, null, 2);
+    }
+
+    function stopPolling() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      stopBtn.disabled = true;
+    }
+
+    async function fetchJob(apiBase, jobId) {
+      const res = await fetch(`${apiBase}/exports/${jobId}`);
+      if (!res.ok) throw new Error(`GET /exports/${jobId} failed (${res.status})`);
+      return await res.json();
+    }
+
+    async function startExport() {
+      stopPolling();
+      startBtn.disabled = true;
+      output.textContent = "Sending request...";
+
+      try {
+        const apiBase = document.getElementById("apiBase").value.trim();
+        const payload = {
+          country: document.getElementById("country").value.trim(),
+          map_year: Number(document.getElementById("mapYear").value),
+          year_start: Number(document.getElementById("yearStart").value),
+          year_end: Number(document.getElementById("yearEnd").value),
+          threshold: Number(document.getElementById("threshold").value),
+          gcs_bucket: document.getElementById("gcsBucket").value.trim(),
+          gcs_prefix: document.getElementById("gcsPrefix").value.trim() || null,
+        };
+
+        const res = await fetch(`${apiBase}/exports`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(jsonPretty(data));
+
+        const jobId = data.job_id;
+        jobIdEl.textContent = jobId;
+        setStatus(data.status || "queued");
+        output.textContent = jsonPretty(data);
+        lastUpdateEl.textContent = new Date().toLocaleString();
+
+        stopBtn.disabled = false;
+        pollTimer = setInterval(async () => {
+          try {
+            const statusData = await fetchJob(apiBase, jobId);
+            setStatus(statusData.status || "queued");
+            output.textContent = jsonPretty(statusData);
+            lastUpdateEl.textContent = new Date().toLocaleString();
+
+            if (["completed", "failed"].includes(statusData.status)) {
+              stopPolling();
+            }
+          } catch (err) {
+            setStatus("failed");
+            output.textContent = `Polling error: ${err.message}`;
+            stopPolling();
+          }
+        }, 4000);
+      } catch (err) {
+        setStatus("failed");
+        output.textContent = `Request error: ${err.message}`;
+      } finally {
+        startBtn.disabled = false;
+      }
+    }
+
+    startBtn.addEventListener("click", startExport);
+    stopBtn.addEventListener("click", stopPolling);
+  </script>
+</body>
+</html>
