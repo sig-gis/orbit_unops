@@ -66,11 +66,27 @@
       padding: 10px;
       border: 1px solid #ececec;
     }
+    .downloads {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #ececec;
+    }
+    .download-links a {
+      display: inline-block;
+      margin-right: 8px;
+      margin-top: 6px;
+      background: #0b5fff;
+      color: white;
+      text-decoration: none;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
   <h1>UNOPS Export Dashboard (POC)</h1>
-  <p class="muted">Simple frontend to trigger <code>POST /exports</code> and poll <code>GET /exports/{job_id}</code>.</p>
+  <p class="muted">Simple frontend to trigger <code>POST /exports</code>, poll <code>GET /export-status/{fileId}</code>, download from GCS, then cleanup via <code>DELETE /export-delete/{fileId}</code>.</p>
 
   <div class="card">
     <div class="grid">
@@ -114,20 +130,35 @@
 
   <div class="card">
     <div id="statusBadge" class="status queued">idle</div>
-    <div><strong>Job ID:</strong> <span id="jobId">-</span></div>
+    <div><strong>Task ID:</strong> <span id="jobId">-</span></div>
+    <div><strong>File ID:</strong> <span id="fileId">-</span></div>
     <div><strong>Last Update:</strong> <span id="lastUpdate">-</span></div>
     <h3>Response</h3>
     <pre id="output">No request yet.</pre>
+    <div id="downloads" class="downloads" style="display:none;">
+      <h3>Downloads</h3>
+      <button id="downloadBtn" style="display:none;">Download</button>
+      <div id="downloadLinks" class="download-links"></div>
+    </div>
   </div>
 
   <script>
     const statusBadge = document.getElementById("statusBadge");
     const output = document.getElementById("output");
     const jobIdEl = document.getElementById("jobId");
+    const fileIdEl = document.getElementById("fileId");
     const lastUpdateEl = document.getElementById("lastUpdate");
     const startBtn = document.getElementById("startBtn");
     const stopBtn = document.getElementById("stopBtn");
+    const downloadsEl = document.getElementById("downloads");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const downloadLinksEl = document.getElementById("downloadLinks");
     let pollTimer = null;
+    const task = {
+      taskId: null,
+      fileId: null,
+      downloadUrl: null,
+    };
 
     function setStatus(statusText) {
       statusBadge.textContent = statusText;
@@ -146,16 +177,74 @@
       stopBtn.disabled = true;
     }
 
-    async function fetchJob(apiBase, jobId) {
-      const res = await fetch(`${apiBase}/exports/${jobId}`);
-      if (!res.ok) throw new Error(`GET /exports/${jobId} failed (${res.status})`);
+    function renderDownloadState(statusData) {
+      const files = Array.isArray(statusData?.files) ? statusData.files : [];
+      if (!statusData?.ready || files.length === 0) {
+        downloadsEl.style.display = "none";
+        downloadBtn.style.display = "none";
+        downloadLinksEl.innerHTML = "";
+        task.downloadUrl = null;
+        return;
+      }
+
+      task.downloadUrl = files[0].url;
+      downloadBtn.style.display = "inline-block";
+      downloadLinksEl.innerHTML = files
+        .map((file) => `<div class="muted">Ready: ${file.name}</div>`)
+        .join("");
+      downloadsEl.style.display = "block";
+    }
+
+    async function fetchExportStatus(apiBase, fileId) {
+      const res = await fetch(`${apiBase}/export-status/${fileId}`);
+      if (!res.ok) throw new Error(`GET /export-status/${fileId} failed (${res.status})`);
       return await res.json();
+    }
+
+    async function cleanupExportFiles(apiBase, fileId) {
+      const res = await fetch(`${apiBase}/export-delete/${fileId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(`DELETE /export-delete/${fileId} failed (${res.status}): ${jsonPretty(data)}`);
+      }
+      return await res.json();
+    }
+
+    async function triggerDownloadAndCleanup() {
+      try {
+        const apiBase = document.getElementById("apiBase").value.trim();
+        if (!task.downloadUrl || !task.fileId) {
+          throw new Error("No download URL is available yet.");
+        }
+
+        const anchor = document.createElement("a");
+        anchor.href = task.downloadUrl;
+        anchor.target = "_blank";
+        anchor.download = "";
+        anchor.style.display = "none";
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+
+        const deleteResult = await cleanupExportFiles(apiBase, task.fileId);
+        output.textContent = `${output.textContent}\n\nCleanup result:\n${jsonPretty(deleteResult)}`;
+      } catch (err) {
+        output.textContent = `Download/Cleanup error: ${err.message}`;
+      }
     }
 
     async function startExport() {
       stopPolling();
       startBtn.disabled = true;
       output.textContent = "Sending request...";
+      jobIdEl.textContent = "-";
+      fileIdEl.textContent = "-";
+      task.taskId = null;
+      task.fileId = null;
+      task.downloadUrl = null;
+      downloadsEl.style.display = "none";
+      downloadBtn.style.display = "none";
+      downloadLinksEl.innerHTML = "";
 
       try {
         const apiBase = document.getElementById("apiBase").value.trim();
@@ -178,21 +267,29 @@
         const data = await res.json();
         if (!res.ok) throw new Error(jsonPretty(data));
 
-        const jobId = data.job_id;
-        jobIdEl.textContent = jobId;
+        task.taskId = data.taskId || data.task_id || data.job_id;
+        task.fileId = data.fileId || data.file_id;
+        jobIdEl.textContent = task.taskId || "-";
+        fileIdEl.textContent = task.fileId || "-";
         setStatus(data.status || "queued");
         output.textContent = jsonPretty(data);
+        renderDownloadState({ ready: false, files: [] });
         lastUpdateEl.textContent = new Date().toLocaleString();
+
+        if (!task.fileId) {
+          throw new Error("Response did not include fileId.");
+        }
 
         stopBtn.disabled = false;
         pollTimer = setInterval(async () => {
           try {
-            const statusData = await fetchJob(apiBase, jobId);
-            setStatus(statusData.status || "queued");
+            const statusData = await fetchExportStatus(apiBase, task.fileId);
+            setStatus(statusData.ready ? "completed" : "running");
             output.textContent = jsonPretty(statusData);
+            renderDownloadState(statusData);
             lastUpdateEl.textContent = new Date().toLocaleString();
 
-            if (["completed", "failed"].includes(statusData.status)) {
+            if (statusData.ready === true) {
               stopPolling();
             }
           } catch (err) {
@@ -211,6 +308,7 @@
 
     startBtn.addEventListener("click", startExport);
     stopBtn.addEventListener("click", stopPolling);
+    downloadBtn.addEventListener("click", triggerDownloadAndCleanup);
   </script>
 </body>
 </html>

@@ -62,7 +62,7 @@ def run_export(
     gcs_bucket: str = "",
     gcs_prefix: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Run the classification pipeline and start a GCS export task."""
+    """Run the classification pipeline and start GCS table export tasks."""
     _validate_inputs(country, year_start, year_end, threshold, gcs_bucket)
     initialize_ee(project=project)
 
@@ -118,14 +118,14 @@ def run_export(
             classProperty="b1",
             inputProperties=input_properties,
         )
-        .setOutputMode("PROBABILITY")
     )
+    probability_classifier = classifier.setOutputMode("PROBABILITY")
 
     # Multi-year stack
     year_list = list(range(year_start, year_end + 1))
     year_names = [f"Y{year}" for year in year_list]
     yearly_images = [
-        embeddings_by_year(embeddings, boundary, year).classify(classifier)
+        embeddings_by_year(embeddings, boundary, year).classify(probability_classifier)
         for year in year_list
     ]
     all_year_results = ee.ImageCollection(yearly_images).toBands().rename(year_names)
@@ -135,7 +135,9 @@ def run_export(
     default_export_name = f"urban_extent_{safe_country}_{year_start}-{year_end}"
     final_export_name = export_name or default_export_name
     normalized_prefix = (gcs_prefix or "").strip().strip("/")
-    file_name_prefix = f"{normalized_prefix}/{final_export_name}" if normalized_prefix else final_export_name
+    base_prefix = f"{normalized_prefix}/{final_export_name}" if normalized_prefix else final_export_name
+    stats_file_name_prefix = f"{base_prefix}_prediction_stats"
+    yearly_area_file_name_prefix = f"{base_prefix}_yearly_urban_area"
 
     result: Dict[str, Any] = {
         "country": country,
@@ -146,10 +148,19 @@ def run_export(
         "threshold": threshold,
         "export_name": final_export_name,
         "export_started": False,
-        "export_target": "gcs",
+        "export_target": "gcs_tables",
         "gcs_bucket": gcs_bucket,
         "gcs_prefix": normalized_prefix or None,
-        "file_name_prefix": file_name_prefix,
+        "stats_file_name_prefix": stats_file_name_prefix,
+        "yearly_area_file_name_prefix": yearly_area_file_name_prefix,
+    }
+
+    metrics_for_export: Dict[str, Any] = {
+        "training_accuracy": None,
+        "validation_accuracy": None,
+        "validation_kappa": None,
+        "training_confusion_matrix": None,
+        "validation_confusion_matrix": None,
     }
 
     # Optional diagnostics (best-effort)
@@ -160,24 +171,126 @@ def run_export(
     except Exception:
         pass
 
-    task = ee.batch.Export.image.toCloudStorage(
-        image=output_image.clip(boundary),
-        description=final_export_name,
+    # Model diagnostics (best-effort)
+    try:
+        filtered_validation_set = validation_set.filter(binary_filter)
+        validation_classified = filtered_validation_set.classify(classifier)
+        training_confusion = classifier.confusionMatrix()
+        validation_confusion = validation_classified.errorMatrix("b1", "classification")
+
+        training_accuracy = training_confusion.accuracy().getInfo()
+        validation_accuracy = validation_confusion.accuracy().getInfo()
+        validation_kappa = validation_confusion.kappa().getInfo()
+        training_confusion_matrix = training_confusion.getInfo()
+        validation_confusion_matrix = validation_confusion.getInfo()
+
+        metrics_for_export = {
+            "training_accuracy": training_accuracy,
+            "validation_accuracy": validation_accuracy,
+            "validation_kappa": validation_kappa,
+            "training_confusion_matrix": json.dumps(training_confusion_matrix),
+            "validation_confusion_matrix": json.dumps(validation_confusion_matrix),
+        }
+
+        result["metrics"] = {
+            "training_accuracy": training_accuracy,
+            "validation_accuracy": validation_accuracy,
+            "validation_kappa": validation_kappa,
+            "training_confusion_matrix": training_confusion_matrix,
+            "validation_confusion_matrix": validation_confusion_matrix,
+        }
+    except Exception:
+        pass
+
+    stats_properties = {
+        "country": country,
+        "project": project or "",
+        "training_year": map_year,
+        "year_start": year_start,
+        "year_end": year_end,
+        "threshold": threshold,
+        "sample_points": sample_points,
+        "sample_scale": sample_scale,
+        "embedding_scale": embedding_scale,
+        "trees": trees,
+        "seed": seed,
+        "training_samples": training_set.size(),
+        "validation_samples": validation_set.size(),
+        "filtered_training_samples": filtered_collection.size(),
+        "training_accuracy": metrics_for_export["training_accuracy"],
+        "validation_accuracy": metrics_for_export["validation_accuracy"],
+        "validation_kappa": metrics_for_export["validation_kappa"],
+        "training_confusion_matrix": metrics_for_export["training_confusion_matrix"],
+        "validation_confusion_matrix": metrics_for_export["validation_confusion_matrix"],
+    }
+
+    stats_feature_collection = ee.FeatureCollection([ee.Feature(None, stats_properties)])
+
+    yearly_area_features = []
+    boundary_geometry = boundary.geometry()
+    for year, year_name in zip(year_list, year_names):
+        urban_area_m2 = (
+            ee.Image.pixelArea()
+            .updateMask(output_image.select(year_name))
+            .rename("area")
+            .reduceRegion(
+                reducer=ee.Reducer.sum(),
+                geometry=boundary_geometry,
+                scale=10,
+                maxPixels=1e13,
+            )
+            .get("area")
+        )
+
+        yearly_area_features.append(
+            ee.Feature(
+                None,
+                {
+                    "country": country,
+                    "year": year,
+                    "urban_area_m2": ee.Number(urban_area_m2),
+                },
+            )
+        )
+
+    yearly_area_collection = ee.FeatureCollection(yearly_area_features)
+
+    stats_task = ee.batch.Export.table.toCloudStorage(
+        collection=stats_feature_collection,
+        description=f"{final_export_name}_prediction_stats",
         bucket=gcs_bucket,
-        fileNamePrefix=file_name_prefix,
-        region=bbox,
-        scale=10,
-        maxPixels=1e13,
+        fileNamePrefix=stats_file_name_prefix,
+        fileFormat="CSV",
     )
-    task.start()
-    status = task.status()
+    yearly_area_task = ee.batch.Export.table.toCloudStorage(
+        collection=yearly_area_collection,
+        description=f"{final_export_name}_yearly_urban_area",
+        bucket=gcs_bucket,
+        fileNamePrefix=yearly_area_file_name_prefix,
+        fileFormat="CSV",
+    )
+
+    stats_task.start()
+    yearly_area_task.start()
+
+    stats_status = stats_task.status()
+    yearly_area_status = yearly_area_task.status()
 
     result.update(
         {
             "export_started": True,
-            "task_id": status.get("id"),
-            "task_state": status.get("state"),
-            "task_description": status.get("description"),
+            "task_ids": {
+                "prediction_stats": stats_status.get("id"),
+                "yearly_urban_area_csv": yearly_area_status.get("id"),
+            },
+            "task_states": {
+                "prediction_stats": stats_status.get("state"),
+                "yearly_urban_area_csv": yearly_area_status.get("state"),
+            },
+            "task_descriptions": {
+                "prediction_stats": stats_status.get("description"),
+                "yearly_urban_area_csv": yearly_area_status.get("description"),
+            },
         }
     )
 
@@ -196,7 +309,7 @@ def get_task_status(task_id: str, project: Optional[str] = None) -> Dict[str, An
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Train an urban extent classifier for a country and optionally start an EE export task."
+        description="Train an urban extent classifier for a country and start EE table export tasks."
     )
     parser.add_argument("country", type=str, help='Country name matching GAUL ADM0_NAME, e.g. "Colombia"')
     parser.add_argument("--map-year", type=int, default=2019, help="Reference year used for training. Default: 2019")
