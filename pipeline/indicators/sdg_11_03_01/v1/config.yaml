@@ -1,12 +1,19 @@
 datasets:
   countries: "FAO/GAUL_SIMPLIFIED_500m/2015/level0"
-  wsf2019: "projects/sat-io/open-datasets/WSF/WSF_2019"
+  ghs_built: "JRC/GHSL/P2023A/GHS_BUILT_S"
+  dynamic_world: "GOOGLE/DYNAMICWORLD/V1"
+  ghs_pop: "JRC/GHSL/P2023A/GHS_POP"
+  worldpop: "WorldPop/GP/100m/pop"
+  gpw411: "CIESIN/GPWv411/GPW_Population_Count"
   embeddings: "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL"
 
 parameters:
-  sample_points: 25
-  sample_scale: 30
+  sample_points: 1000
+  sample_scale: 190
   embedding_scale: 10
   threshold: 0.75
-  trees: 10
+  trees: 100
   seed: 42
+  span_target: 5
+  area_scale: 10
+  pop_anchor_years: [2015, 2020]

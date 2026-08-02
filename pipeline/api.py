@@ -7,9 +7,14 @@ from threading import Lock
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 import google.auth
 from google.auth.transport.requests import Request as GoogleAuthRequest
@@ -27,7 +32,7 @@ if __package__:
     from .indicators.sdg_15_04_02.v1.retrieval_method import run_15_04_02
     from .indicators.sdg_15_03_01.v1.retrieval_method import run_15_03_01
     from .indicators.sdg_11_01_01.v1.retrieval_method import run_11_01_01
-    from .utils.gee_common import get_task_status, list_saved_models
+    from .utils.gee_common import get_task_status, list_saved_models, initialize_ee
 else:
     # Running directly from the pipeline/ folder.
     from indicators.sdg_11_03_01.v1.retrieval_method import run_11_03_01
@@ -36,7 +41,7 @@ else:
     from indicators.sdg_15_04_02.v1.retrieval_method import run_15_04_02
     from indicators.sdg_15_03_01.v1.retrieval_method import run_15_03_01
     from indicators.sdg_11_01_01.v1.retrieval_method import run_11_01_01
-    from utils.gee_common import get_task_status, list_saved_models
+    from utils.gee_common import get_task_status, list_saved_models, initialize_ee
 
 
 _INDICATOR_REGISTRY: Dict[str, Any] = {
@@ -99,8 +104,6 @@ class ExportRequest(BaseModel):
         None, description="Last year of the multi-year prediction range (inclusive)"
     )
     export_name: Optional[str] = None
-    gcs_bucket: str
-    gcs_prefix: Optional[str] = None
 
    
     start_date: Optional[str] = Field(
@@ -113,8 +116,19 @@ class ExportRequest(BaseModel):
     priority: Optional[str] = None
     data_sources: Optional[list[str]] = None
     export_formats: Optional[list[str]] = None
-
-
+    
+    population_sources: Optional[list[str]] = Field(
+        None, description="List of population sources, e.g. ['GHS_POP', 'WorldPop', 'GPW_v411', 'WorldBank']"
+    )
+    urban_methods: Optional[list[str]] = Field(
+        None, description="List of urban extent methods, e.g. ['RF', 'DW']"
+    )
+    span_target: Optional[int] = Field(
+        5, description="Target span length in years for the LCRPGR ratio"
+    )
+    wb_population_dict: Optional[Dict[int, int]] = Field(
+        None, description="Dictionary mapping years to population totals for WorldBank data"
+    )
 
     @model_validator(mode="after")
     def translate_dates_and_validate(self) -> "ExportRequest":
@@ -181,12 +195,7 @@ class ExportRequest(BaseModel):
         stripped = value.strip()
         return stripped if stripped else None
 
-    @field_validator("gcs_bucket")
-    @classmethod
-    def validate_gcs_bucket(cls, value: str) -> str:
-        if not value or not value.strip():
-            raise ValueError("gcs_bucket is required")
-        return value.strip()
+
 
     @field_validator("threshold")
     @classmethod
@@ -239,15 +248,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_jobs: Dict[str, Dict[str, Any]] = {}
-_files: Dict[str, Dict[str, str]] = {}
-_jobs_lock = Lock()
+import os
+import json
 
+_jobs_lock = Lock()
 
 def _get_storage_client() -> "storage.Client":
     if storage is None:
         raise RuntimeError("google-cloud-storage is not installed")
     return storage.Client()
+
+_jobs: Dict[str, Dict[str, Any]] = {}
+try:
+    _client = _get_storage_client()
+    _bucket = _client.bucket(os.getenv("GCS_BUCKET", "unops"))
+    _blob = _bucket.blob("orbit_system/jobs.json")
+    if _blob.exists():
+        _jobs = json.loads(_blob.download_as_text())
+except Exception as e:
+    print(f"Warning: Could not load jobs from GCS: {e}")
+
+_files: Dict[str, Dict[str, str]] = {}
 
 
 def _normalize_gcs_prefix(prefix: Optional[str]) -> str:
@@ -339,12 +360,23 @@ def _list_files_for_file_id(file_id: str) -> list[Dict[str, str]]:
     return matched_files
 
 
-def _set_job(job_id: str, updates: Dict[str, Any]) -> None:
+def _save_jobs():
+    try:
+        # cloud persistence
+        client = _get_storage_client()
+        bucket = client.bucket(os.getenv("GCS_BUCKET", "unops"))
+        blob = bucket.blob("orbit_system/jobs.json")
+        blob.upload_from_string(json.dumps(_jobs), content_type="application/json")
+    except Exception as e:
+        print(f"Cloud persistence error: {e}")
+
+def _set_job(job_id: str, data: Dict[str, Any]) -> None:
     with _jobs_lock:
         if job_id not in _jobs:
-            return
-        _jobs[job_id].update(updates)
-        _jobs[job_id]["updated_at"] = utc_now_iso()
+            _jobs[job_id] = {}
+        _jobs[job_id].update(data)
+        _jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
+        _save_jobs()
 
 
 def _run_export_job(job_id: str, request: ExportRequest) -> None:
@@ -354,8 +386,10 @@ def _run_export_job(job_id: str, request: ExportRequest) -> None:
         file_id = _jobs[job_id]["file_id"]
         request_data = request.model_dump()
         request_data["gcs_prefix"] = _build_file_scoped_prefix(
-            request_data.get("gcs_prefix"), file_id
+            os.getenv("GCS_PREFIX", "exports/unops"), file_id
         )
+        request_data["gcs_bucket"] = os.getenv("GCS_BUCKET", "unops")
+        request_data["project"] = os.getenv("GCP_PROJECT", "damage-control-403117")
 
         # Route to the correct indicator function based on indicator_id and version.
         registry_entry = _INDICATOR_REGISTRY[request.indicator_id]
@@ -371,10 +405,17 @@ def _run_export_job(job_id: str, request: ExportRequest) -> None:
         # Strip API-layer-only keys that indicator functions don't accept.
         indicator_data = {k: v for k, v in request_data.items() if k not in ["indicator_id", "version"]}
 
+        print(f"========== [BACKEND: JOB {job_id}] ==========")
+        print(f"Indicator: {request.indicator_id} (v{version})")
+        print(f"Payload sent to EE script: {indicator_data}")
+        print(f"===========================================")
+
         result = indicator_fn(**indicator_data)
         result["fileId"] = file_id
-        _set_job(job_id, {"status": "completed", "result": result})
+        _set_job(job_id, {"status": "running", "result": result})
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         _set_job(job_id, {"status": "failed", "error": str(exc)})
 
 
@@ -410,16 +451,23 @@ def create_export(request: ExportRequest, background_tasks: BackgroundTasks) -> 
             "status": "queued",
             "created_at": created_at,
             "updated_at": created_at,
-            "result": None,
+            "result": {"country": request.country} if request.country else None,
             "error": None,
         }
         _files[file_id] = {
-            "bucket": request.gcs_bucket.strip(),
-            "file_prefix": _build_file_scoped_prefix(request.gcs_prefix, file_id),
+            "bucket": os.getenv("GCS_BUCKET", "unops").strip(),
+            "file_prefix": _build_file_scoped_prefix(os.getenv("GCS_PREFIX", "exports/unops"), file_id),
         }
 
     background_tasks.add_task(_run_export_job, job_id, request)
     return ExportStatusResponse(**_jobs[job_id])
+
+
+@app.get("/exports", response_model=list[ExportStatusResponse])
+def list_exports():
+    """Returns all jobs from the system."""
+    with _jobs_lock:
+        return [ExportStatusResponse(**job) for job in _jobs.values()]
 
 
 @app.get("/exports/{job_id}", response_model=ExportStatusResponse)
@@ -440,7 +488,25 @@ def get_export(job_id: str, refresh_task_status: bool = True) -> ExportStatusRes
             }
             merged_result = dict(job["result"])
             merged_result["ee_task_status"] = ee_status
-            _set_job(job_id, {"result": merged_result})
+
+            all_completed = True
+            any_failed = False
+            for task_key, task_info in ee_status.items():
+                if task_key == "classifier_export":
+                    continue
+                state = task_info.get("state", "UNKNOWN")
+                if state in ["READY", "RUNNING"]:
+                    all_completed = False
+                elif state in ["FAILED", "CANCELLED"]:
+                    any_failed = True
+
+            new_status = job["status"]
+            if any_failed:
+                new_status = "failed"
+            elif all_completed and len(ee_status) > 0:
+                new_status = "completed"
+
+            _set_job(job_id, {"status": new_status, "result": merged_result})
         except Exception:
             # Keep API resilient even if EE status refresh fails.
             pass
@@ -449,6 +515,37 @@ def get_export(job_id: str, refresh_task_status: bool = True) -> ExportStatusRes
         job = _jobs[job_id]
 
     return ExportStatusResponse(**job)
+
+
+@app.post("/exports/{job_id}/cancel", response_model=ExportStatusResponse)
+def cancel_export(job_id: str) -> ExportStatusResponse:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+            
+        if job["status"] in ["completed", "failed", "cancelled"]:
+            return ExportStatusResponse(**job)
+
+    try:
+        project = job.get("result", {}).get("project")
+        initialize_ee(project=project)
+        
+        task_ids = job.get("result", {}).get("task_ids", {})
+        import ee
+        for key, task_id in task_ids.items():
+            if task_id:
+                try:
+                    ee.data.cancelTask(task_id)
+                except Exception as e:
+                    print(f"Warning: Failed to cancel EE task {task_id}: {e}")
+                    
+        _set_job(job_id, {"status": "cancelled"})
+    except Exception as e:
+        print(f"Failed to cancel job {job_id}: {e}")
+        
+    with _jobs_lock:
+        return ExportStatusResponse(**_jobs[job_id])
 
 
 @app.get("/export-status/{fileId}", response_model=FileStatusResponse)
@@ -485,3 +582,81 @@ def delete_export_files(fileId: str) -> FileDeleteResponse:
         _files.pop(fileId, None)
 
     return FileDeleteResponse(fileId=fileId, deleted=len(deleted_files), files=deleted_files)
+
+
+@app.get("/indicators")
+def get_indicators() -> Dict[str, Any]:
+    return {
+        "11.3.1": {
+            "name": "Urban Expansion (SDG 11.3.1)",
+            "description": "Multi-year urban growth analysis.",
+            "icon": "building-2",
+            "parameters": [
+                {"name": "map_year", "type": "number", "label": "Training Year", "required": True, "default": 2020},
+                {"name": "span_target", "type": "number", "label": "Target Span (Years)", "required": False, "default": 5},
+                {"name": "population_sources", "type": "text", "label": "Pop Sources (comma separated)", "required": False, "default": "GHS_POP"},
+                {"name": "urban_methods", "type": "text", "label": "Urban Methods (comma separated)", "required": False, "default": "RF"}
+            ]
+        },
+        "15.1.1": {
+            "name": "Forest Area (SDG 15.1.1)",
+            "description": "Forest cover analysis and change detection.",
+            "icon": "trees",
+            "parameters": [
+                {"name": "map_year", "type": "number", "label": "Training Year", "required": True, "default": 2020},
+                {"name": "threshold", "type": "number", "label": "Forest Threshold (0-1)", "required": False, "default": 0.5}
+            ]
+        },
+        "6.6.1": {
+            "name": "Water Ecosystems (SDG 6.6.1)",
+            "description": "Spatial extent of water-related ecosystems.",
+            "icon": "droplets",
+            "parameters": [
+                {"name": "map_year", "type": "number", "label": "Training Year", "required": True, "default": 2020}
+            ]
+        },
+        "15.4.2": {
+            "name": "Mountain Green Cover (SDG 15.4.2)",
+            "description": "Mountain green cover index.",
+            "icon": "mountain",
+            "parameters": [
+                {"name": "map_year", "type": "number", "label": "Training Year", "required": True, "default": 2020}
+            ]
+        }
+    }
+
+import urllib.request
+from fastapi import Response
+
+@app.get("/proxy-csv")
+def proxy_csv(url: str):
+    """Proxy endpoint to bypass CORS when fetching CSVs from GCS in the browser."""
+    if not url.startswith("https://storage.googleapis.com/"):
+        raise HTTPException(status_code=400, detail="Only storage.googleapis.com URLs are allowed")
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            return Response(content=response.read(), media_type="text/csv")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"File not found or failed to fetch: {str(e)}")
+
+# --- Serve Frontend SPA ---
+frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+
+if os.path.exists(frontend_dir):
+    # Mount asset directories so /css, /js, and /assets resolve correctly
+    app.mount("/css", StaticFiles(directory=os.path.join(frontend_dir, "css")), name="css")
+    app.mount("/js", StaticFiles(directory=os.path.join(frontend_dir, "js")), name="js")
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dir, "assets")), name="assets")
+
+    @app.get("/")
+    def serve_index():
+        return FileResponse(os.path.join(frontend_dir, "index.html"))
+
+    # Catch-all route to serve other HTML files (like manual.html) or fallback to index.html for SPA routing
+    @app.get("/{full_path:path}")
+    def serve_spa(full_path: str):
+        file_path = os.path.join(frontend_dir, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(frontend_dir, "index.html"))

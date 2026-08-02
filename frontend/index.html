@@ -1,793 +1,355 @@
-<!doctype html>
-<html lang="en">
-
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>UNOPS Export Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="COMPASS - ORBIT Operations Center — Real-time geospatial intelligence platform for UNOPS mission-critical operations">
+    <title>COMPASS - ORBIT Operations Center — UNOPS GEO-IS</title>
 
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <!-- Leaflet-Draw CSS -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
-  <style>
-    *,
-    *::before,
-    *::after {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    body {
-      font-family: Arial, sans-serif;
-      max-width: 960px;
-      margin: 32px auto;
-      padding: 0 16px;
-      color: #1a1a1a;
-      background: #f4f6fa;
-    }
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 
-    h1 {
-      margin-bottom: 4px;
-      font-size: 1.5rem;
-    }
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
-    h2 {
-      font-size: 1.1rem;
-      margin-bottom: 10px;
-      color: #444;
-    }
+    <!-- App CSS -->
+    <link rel="stylesheet" href="/css/design-system.css?v=27July26">
+    <link rel="stylesheet" href="/css/layout.css?v=27July26">
+    <link rel="stylesheet" href="/css/components.css?v=27July26">
 
-    .muted {
-      color: #666;
-      font-size: 0.9rem;
-      margin-bottom: 16px;
-    }
-
-    .card {
-      background: #fff;
-      border: 1px solid #dde0e8;
-      border-radius: 10px;
-      padding: 20px;
-      margin-bottom: 16px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-      gap: 12px;
-    }
-
-    label {
-      display: block;
-      font-size: 0.85rem;
-      margin-bottom: 4px;
-      font-weight: 600;
-      color: #333;
-    }
-
-    input,
-    select {
-      width: 100%;
-      padding: 8px 10px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-      font-size: 0.9rem;
-      background: #fafafa;
-    }
-
-    input:focus,
-    select:focus {
-      outline: 2px solid #0b5fff;
-      border-color: #0b5fff;
-      background: #fff;
-    }
-
-    /* AOI hint banner */
-    #aoiHint {
-      font-size: 0.82rem;
-      padding: 6px 10px;
-      border-radius: 6px;
-      margin-bottom: 10px;
-      background: #e8f0ff;
-      border: 1px solid #b3c8ff;
-      color: #1a3d99;
-    }
-
-    #aoiHint.using-aoi {
-      background: #d6f5df;
-      border-color: #7ed99e;
-      color: #0b5d1e;
-    }
-
-    #aoiHint.using-name {
-      background: #fff4ce;
-      border-color: #f0cc5e;
-      color: #7a5a00;
-    }
-
-    /* Map */
-    #map {
-      height: 380px;
-      border-radius: 8px;
-      border: 1px solid #ccc;
-      margin-bottom: 12px;
-    }
-
-    /* Buttons */
-    .btn-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-top: 14px;
-    }
-
-    button {
-      padding: 10px 16px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: 700;
-      font-size: 0.9rem;
-    }
-
-    #startBtn {
-      background: #0b5fff;
-      color: #fff;
-    }
-
-    #stopBtn {
-      background: #666;
-      color: #fff;
-    }
-
-    #clearAoiBtn {
-      background: #e0e4ee;
-      color: #333;
-    }
-
-    button:disabled {
-      opacity: 0.55;
-      cursor: not-allowed;
-    }
-
-    /* Status */
-    .status {
-      font-weight: 700;
-      padding: 4px 10px;
-      border-radius: 6px;
-      display: inline-block;
-      margin-bottom: 10px;
-      font-size: 0.9rem;
-    }
-
-    .queued,
-    .running {
-      background: #fff4ce;
-      color: #7a5a00;
-    }
-
-    .completed {
-      background: #d6f5df;
-      color: #0b5d1e;
-    }
-
-    .failed {
-      background: #ffe1e1;
-      color: #8d0000;
-    }
-
-    .idle {
-      background: #e8e8e8;
-      color: #555;
-    }
-
-    pre {
-      white-space: pre-wrap;
-      word-break: break-word;
-      background: #f7f7f8;
-      border-radius: 8px;
-      padding: 12px;
-      border: 1px solid #ececec;
-      font-size: 0.82rem;
-      max-height: 340px;
-      overflow-y: auto;
-    }
-
-    .downloads {
-      margin-top: 14px;
-      padding-top: 14px;
-      border-top: 1px solid #ececec;
-    }
-
-    .download-links a {
-      display: inline-block;
-      margin-right: 8px;
-      margin-top: 6px;
-      background: #0b5fff;
-      color: #fff;
-      text-decoration: none;
-      border-radius: 6px;
-      padding: 8px 12px;
-      font-weight: 700;
-      font-size: 0.85rem;
-    }
-
-    .meta-row {
-      display: flex;
-      gap: 24px;
-      font-size: 0.85rem;
-      margin-bottom: 10px;
-      flex-wrap: wrap;
-    }
-
-    .meta-row span strong {
-      margin-right: 4px;
-    }
-
-    /* Per-file download links */
-    .download-link {
-      display: inline-block;
-      margin: 4px 8px 4px 0;
-      background: #e8f0ff;
-      color: #0b5fff;
-      text-decoration: none;
-      padding: 6px 12px;
-      border-radius: 4px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      border: 1px solid #b3c8ff;
-    }
-
-    .download-link:hover {
-      background: #d0e0ff;
-    }
-
-    /* Checkbox groups */
-    .check-group {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      margin-top: 2px;
-    }
-
-    .check-group label {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      font-weight: 400;
-      font-size: 0.88rem;
-      color: #333;
-      cursor: pointer;
-    }
-
-    .check-group input[type="checkbox"] {
-      width: 15px;
-      height: 15px;
-      flex-shrink: 0;
-      accent-color: #0b5fff;
-      cursor: pointer;
-    }
-
-    .field-label {
-      display: block;
-      font-size: 0.85rem;
-      margin-bottom: 6px;
-      font-weight: 600;
-      color: #333;
-    }
-  </style>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛰️</text></svg>">
 </head>
-
 <body>
-
-  <h1>UNOPS Export Dashboard <span style="font-weight:400;font-size:1rem;color:#888;">(POC)</span></h1>
-  <p class="muted">
-    Trigger <code>POST /exports</code>, poll <code>GET /export-status/{fileId}</code>,
-    download from GCS, then clean up via <code>DELETE /export-delete/{fileId}</code>.
-  </p>
-
-  <!-- ── Configuration card ──────────────────────────────────────────── -->
-  <div class="card">
-    <h2>Configuration</h2>
-    <div class="grid">
-
-      <div>
-        <label for="apiBase">API Base URL</label>
-        <input id="apiBase" value="http://127.0.0.1:8000" />
-      </div>
-
-      <div>
-        <label for="indicator">Indicator</label>
-        <select id="indicator">
-          <option value="11.3.1">11.3.1 — Urban Extent</option>
-          <option value="15.1.1">15.1.1 — Forest Area</option>
-          <option value="6.6.1">6.6.1 — Water-related Ecosystems</option>
-          <option value="15.4.2">15.4.2 — Mountain Green Cover & Degradation</option>
-          <option value="15.3.1">15.3.1 — Land Degradation (LULC sub-indicator)</option>
-          <option value="11.1.1">11.1.1 — Informal Settlements (Proxy)</option>
-        </select>
-      </div>
-
-      <div>
-        <label for="version">Version <span style="font-weight:400;color:#888;">(optional)</span></label>
-        <input id="version" placeholder="e.g. v1" />
-      </div>
-
-      <div>
-        <label for="modelAssetId">Model Asset ID <span style="font-weight:400;color:#888;">(optional)</span></label>
-        <select id="modelAssetId">
-          <option value="">-- Train a new model --</option>
-        </select>
-      </div>
-
-      <div>
-        <label for="mapYear">Map Year <span style="font-weight:400;color:#888;">(training)</span></label>
-        <input id="mapYear" type="number" placeholder="e.g. 2019" />
-      </div>
-
-      <div>
-        <label for="start_date">Start Date</label>
-        <input id="start_date" type="date" />
-      </div>
-
-      <div>
-        <label for="end_date">End Date</label>
-        <input id="end_date" type="date" />
-      </div>
-
-      <div>
-        <label for="threshold">Threshold <span style="font-weight:400;color:#888;">(0–1)</span></label>
-        <input id="threshold" type="number" step="0.01" value="0.75" />
-      </div>
-
-      <div>
-        <label for="resolution">Resolution</label>
-        <select id="resolution">
-          <option value="10m">10m (Sentinel-2)</option>
-          <option value="30m">30m (Landsat)</option>
-        </select>
-      </div>
-
-      <div>
-        <label for="priority">Priority</label>
-        <select id="priority">
-          <option value="standard">Standard</option>
-          <option value="high">High</option>
-        </select>
-      </div>
-
-      <div>
-        <label for="project">GCP Project</label>
-        <input id="project" value="" placeholder="e.g. damage-control-403117" />
-      </div>
-
-      <div>
-        <label for="gcsBucket">GCS Bucket</label>
-        <input id="gcsBucket" placeholder="your-gcs-bucket" />
-      </div>
-
-      <div>
-        <label for="gcsPrefix">GCS Prefix <span style="font-weight:400;color:#888;">(optional)</span></label>
-        <input id="gcsPrefix" value="exports/unops" />
-      </div>
-
-      <div>
-        <span class="field-label">Data Sources</span>
-        <div class="check-group">
-          <label><input type="checkbox" id="ds_sentinel2" value="Sentinel-2 Optical" /> Sentinel-2 Optical</label>
-          <label><input type="checkbox" id="ds_sentinel1" value="Sentinel-1 SAR" /> Sentinel-1 SAR</label>
-          <label><input type="checkbox" id="ds_landsat" value="Landsat 8/9" /> Landsat 8/9</label>
+    <!-- ═══ Sidebar ═══ -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-header-top">
+                <img src="/assets/UNOPS.png" alt="UNOPS" class="sidebar-logo" id="sidebar-logo">
+                <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">
+                    <i data-lucide="panel-left-close" class="icon"></i>
+                </button>
+            </div>
+            <div class="sidebar-brand">
+                <span class="brand-orbit">COMPASS - ORBIT</span>
+                <span class="brand-subtitle">Operations Center</span>
+            </div>
         </div>
-      </div>
 
-      <div>
-        <span class="field-label">Export Formats</span>
-        <div class="check-group">
-          <label><input type="checkbox" id="ef_geotiff" value="GeoTIFF" /> GeoTIFF</label>
-          <label><input type="checkbox" id="ef_geojson" value="GeoJSON" /> GeoJSON</label>
-          <label><input type="checkbox" id="ef_csv" value="CSV" checked /> CSV</label>
+        <nav class="sidebar-nav">
+            <a href="#map" class="nav-item active" data-view="map" id="nav-map">
+                <i data-lucide="map" class="icon"></i>
+                <span class="nav-label">Map View</span>
+            </a>
+            <a href="#jobs" class="nav-item" data-view="jobs" id="nav-jobs">
+                <i data-lucide="clipboard-list" class="icon"></i>
+                <span class="nav-label">Jobs</span>
+                <span class="nav-badge" id="active-jobs-badge" style="display:none">0</span>
+            </a>
+            <div class="nav-divider"></div>
+            <div style="padding: 0 1.5rem; margin-bottom: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">SDG Indicators</div>
+            <a class="nav-item" id="btn-sdg-11" title="SDG 11: Sustainable Cities">
+                <i data-lucide="building" class="icon"></i>
+                <span class="nav-label">SDG 11.3.1</span>
+            </a>
+
+
+            <div class="nav-divider"></div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="user-profile-summary">
+                <div class="user-avatar-initials" id="user-avatar-initials">U</div>
+                <div class="user-info-text">
+                    <div class="user-name" id="user-name">Loading...</div>
+                    <div class="user-role" id="user-role">...</div>
+                </div>
+            </div>
+
+            <div class="system-menu-container">
+                <button class="nav-item system-menu-btn" id="system-menu-btn">
+                    <i data-lucide="settings" class="icon"></i>
+                    <span class="nav-label">System Settings</span>
+                </button>
+                <div class="system-dropdown" id="system-dropdown">
+                    <a href="#analytics" class="dropdown-item" data-view="analytics" id="nav-admin">
+                        <i data-lucide="shield" class="icon sm"></i> Admin Panel
+                    </a>
+                    <a href="/manual.html" target="_blank" class="dropdown-item">
+                        <i data-lucide="book-open" class="icon sm"></i> User Guide
+                    </a>
+                    <div class="dropdown-divider"></div>
+                    <button class="dropdown-item text-error" id="btn-logout">
+                        <i data-lucide="log-out" class="icon sm"></i> Log Out
+                    </button>
+                </div>
+            </div>
         </div>
-      </div>
+    </aside>
 
+    <!-- ═══ Main Content ═══ -->
+    <main class="main-content" id="main-content">
+        <!-- Header -->
+        <header class="header" id="main-header">
+            <div class="header-left">
+                <button class="mobile-menu-btn" id="mobile-menu-btn">
+                    <i data-lucide="menu" class="icon"></i>
+                </button>
+                <h1 class="header-title" id="header-title">
+                    <i data-lucide="satellite" class="icon header-icon"></i>
+                    <span>Operations Center</span>
+                </h1>
+            </div>
+            <div class="header-center">
+                <div class="aoi-selector" id="country-selector">
+                    <i data-lucide="search" class="icon"></i>
+                    <input type="text" id="country-select" list="country-list" class="aoi-dropdown" placeholder="Search for a country..." autocomplete="off" style="background: transparent; border: none; outline: none; width: 100%; color: inherit; padding: 0.5rem;">
+                    <datalist id="country-list"></datalist>
+                </div>
+            </div>
+            <div class="header-right">
+                <!-- Removed New Job button for Phase 1 -->
+            </div>
+        </header>
+
+        <!-- ═══ Map View ═══ -->
+        <div class="view active" id="view-map">
+            <div id="map" class="map-container"></div>
+
+            <!-- SDG Panel -->
+            <div class="expansion-panel" id="sdg-panel" style="display:none; position: absolute; right: 20px; top: 20px; bottom: 20px; width: 400px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border-left: 4px solid var(--brand-secondary); padding: 1.5rem; overflow-y: auto; flex-direction: column;">
+                <div class="expansion-header">
+                    <div class="expansion-title">
+                        <i data-lucide="building" class="icon" style="color:var(--brand-secondary)"></i>
+                        <h3>SDG 11.3.1</h3>
+                    </div>
+                    <button class="expansion-close" id="sdg-panel-close"><i data-lucide="x" class="icon"></i></button>
+                </div>
+                <div class="expansion-subtitle">Ratio of land consumption to population growth</div>
+                
+                <div style="padding: 1rem 0;">
+                    <div id="sdg-hero-data">
+                        <div class="empty-state-sm">Select a country to view analysis.</div>
+                    </div>
+                </div>
+
+                <div style="padding: 1rem 0; border-bottom: 1px solid var(--border-color); margin-bottom: 1rem;">
+                    <h4>Run New Analysis</h4>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <div style="flex: 1;">
+                            <label for="sdg-start-year" style="font-size: 0.85rem;">Start Year</label>
+                            <select id="sdg-start-year" class="form-input"></select>
+                        </div>
+                        <div style="flex: 1;">
+                            <label for="sdg-end-year" style="font-size: 0.85rem;">End Year</label>
+                            <select id="sdg-end-year" class="form-input"></select>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn-primary full-width" id="btn-submit-sdg-job" style="margin-top: 1rem;">
+                    <i data-lucide="image" class="icon"></i> Generate Raster Export
+                </button>
+            </div>
+
+
+        </div>
+
+        <!-- ═══ Jobs View (Unified) ═══ -->
+        <div class="view" id="view-jobs" style="display:none">
+            <div class="view-content">
+                <div class="view-header">
+                    <h2>Job Management</h2>
+                    <div class="view-tabs">
+                        <button class="tab-btn active" data-tab="active">Active Jobs</button>
+                        <button class="tab-btn" data-tab="history">Job History</button>
+                    </div>
+                </div>
+
+                <!-- Active Jobs Tab -->
+                <div class="tab-content active" id="tab-active">
+                    <div class="view-actions">
+                        <div class="filter-group">
+                            <select id="jobs-filter-state" class="filter-select">
+                                <option value="">All States</option>
+                                <option value="PENDING">Pending</option>
+                                <option value="ESTIMATING">Estimating</option>
+                                <option value="AWAITING_APPROVAL">Awaiting Approval</option>
+                                <option value="PROCESSING">Processing</option>
+                                <option value="COMPLETED">Completed</option>
+                                <option value="FAILED">Failed</option>
+                                <option value="CANCELLED">Cancelled</option>
+                            </select>
+                        </div>
+                        <button class="btn-primary" id="btn-refresh-jobs">
+                            <i data-lucide="refresh-cw" class="icon"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="jobs-table-container">
+                        <table class="jobs-table" id="jobs-table">
+                            <thead>
+                                <tr>
+                                    <th>Job ID</th>
+                                    <th>Country</th>
+                                    <th>Indicator</th>
+                                    <th>Status</th>
+                                    <th>Submitted</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="jobs-table-body"></tbody>
+                        </table>
+                        <div class="empty-state" id="jobs-empty" style="display:none">
+                            <i data-lucide="inbox" class="icon empty-icon"></i>
+                            <h3>No Jobs Yet</h3>
+                            <p>Select an SDG and a country to generate a job.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- History Tab -->
+                <div class="tab-content" id="tab-history" style="display:none">
+                    <div class="view-actions">
+                        <input type="text" id="history-search" class="search-input" placeholder="Search history...">
+                    </div>
+                    <div class="jobs-table-container">
+                        <table class="jobs-table" id="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Job ID</th>
+                                    <th>Country</th>
+                                    <th>Indicator</th>
+                                    <th>Status</th>
+                                    <th>Submitted</th>
+                                    <th>Completed</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ Admin View ═══ -->
+        <div class="view" id="view-analytics" style="display:none">
+            <div class="view-content">
+                <div class="view-header">
+                    <h2><i data-lucide="shield" class="icon"></i> Admin Panel</h2>
+                </div>
+
+                <!-- Summary Cards -->
+                <div class="analytics-grid">
+                    <div class="analytics-card">
+                        <div class="card-header"><i data-lucide="users" class="icon"></i> Users</div>
+                        <div class="card-value" id="analytics-users">0</div>
+                    </div>
+                    <div class="analytics-card">
+                        <div class="card-header"><i data-lucide="map-pin" class="icon"></i> Active AOIs</div>
+                        <div class="card-value" id="analytics-aois">0</div>
+                    </div>
+                    <div class="analytics-card">
+                        <div class="card-header"><i data-lucide="activity" class="icon"></i> Total Jobs</div>
+                        <div class="card-value" id="analytics-total-jobs">0</div>
+                    </div>
+                    <div class="analytics-card">
+                        <div class="card-header"><i data-lucide="check-circle" class="icon"></i> Completed</div>
+                        <div class="card-value success" id="analytics-completed">0</div>
+                    </div>
+                </div>
+
+                <!-- Users Section -->
+                <div class="admin-section">
+                    <h3><i data-lucide="users" class="icon"></i> Active Users</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>Role</th>
+                                    <th>Jobs</th>
+                                    <th>Last Active</th>
+                                    <th>Joined</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-users-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- AOI Management Section -->
+                <div class="admin-section">
+                    <h3><i data-lucide="map-pin" class="icon"></i> Area of Interest Management</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>AOI Name</th>
+                                    <th>Area (km²)</th>
+                                    <th>Jobs</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-aois-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ═══ Login Modal ═══ -->
+    <div class="modal-overlay" id="login-modal">
+        <div class="modal login-modal">
+            <div class="login-header">
+                <img src="/assets/UNOPS.png" alt="UNOPS" class="login-logo">
+                <h1 class="login-title">COMPASS - ORBIT</h1>
+                <p class="login-subtitle">Orbital Remote Based Intelligence Technology</p>
+                <p class="login-tagline">Global Earth Observation & Intelligence Service</p>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="login-email">Email</label>
+                    <input type="email" id="login-email" class="form-input" placeholder="your.email@unops.org">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" class="form-input" placeholder="Enter password">
+                </div>
+                <button class="btn-primary full-width" id="login-submit">
+                    <i data-lucide="log-in" class="icon"></i> Sign In
+                </button>
+
+            </div>
+        </div>
     </div>
-  </div>
 
-  <!-- ── AOI card ─────────────────────────────────────────────────────── -->
-  <div class="card">
-    <h2>Area of Interest (AOI)</h2>
-    <p class="muted" style="margin-bottom:10px;">
-      Draw a polygon on the map <strong>or</strong> type a country name below.
-      A drawn polygon takes priority when both are provided.
-    </p>
+    <!-- ═══ Toast Container ═══ -->
+    <div class="toast-container" id="toast-container"></div>
 
-    <div id="aoiHint">No polygon drawn — using country name below.</div>
+    <!-- External Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
-    <!-- Leaflet map -->
-    <div id="map"></div>
+    <!-- App JS -->
+    <script src="/js/api.js?v=27July26"></script>
+    <script src="/js/auth.js?v=27July26"></script>
+    <script src="/js/map.js?v=27July26"></script>
+    <script src="/js/layers.js?v=27July26"></script>
+    <script src="/js/jobs.js?v=27July26-2"></script>
+    <script src="/js/stats.js?v=27July26"></script>
 
-    <div style="max-width:340px;">
-      <label for="country">Country name <span style="font-weight:400;color:#888;">(used when no polygon is
-          drawn)</span></label>
-      <input id="country" placeholder="e.g. Colombia" />
-    </div>
-
-    <div class="btn-row">
-      <button id="clearAoiBtn" disabled>Clear Drawn Polygon</button>
-    </div>
-  </div>
-
-  <!-- ── Actions ──────────────────────────────────────────────────────── -->
-  <div class="card">
-    <div class="btn-row">
-      <button id="startBtn">▶ Start Export</button>
-      <button id="stopBtn" disabled>■ Stop Polling</button>
-    </div>
-  </div>
-
-  <!-- ── Status / output card ─────────────────────────────────────────── -->
-  <div class="card">
-    <div id="statusBadge" class="status idle">idle</div>
-    <div class="meta-row">
-      <span><strong>Job ID:</strong> <span id="jobId">—</span></span>
-      <span><strong>File ID:</strong> <span id="fileId">—</span></span>
-      <span><strong>Last update:</strong> <span id="lastUpdate">—</span></span>
-    </div>
-    <h2>Response</h2>
-    <pre id="output">No request yet.</pre>
-
-    <div id="downloads" class="downloads" style="display:none;">
-      <h2>Downloads</h2>
-      <button id="downloadBtn" style="display:none;background:#d9534f;color:#fff;">🗑️ Delete Files from Cloud</button>
-      <div id="downloadLinks" class="download-links"></div>
-    </div>
-  </div>
-
-  <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Leaflet-Draw JS -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
-
-  <script>
-    // ── State ────────────────────────────────────────────────────────────
-    let currentAoiGeojson = null;   // GeoJSON geometry object or null
-    let pollTimer = null;
-    const task = { taskId: null, fileId: null, downloadUrls: [] };
-
-    // ── DOM refs ─────────────────────────────────────────────────────────
-    const statusBadge = document.getElementById("statusBadge");
-    const output = document.getElementById("output");
-    const jobIdEl = document.getElementById("jobId");
-    const fileIdEl = document.getElementById("fileId");
-    const lastUpdateEl = document.getElementById("lastUpdate");
-    const startBtn = document.getElementById("startBtn");
-    const stopBtn = document.getElementById("stopBtn");
-    const clearAoiBtn = document.getElementById("clearAoiBtn");
-    const downloadsEl = document.getElementById("downloads");
-    const downloadBtn = document.getElementById("downloadBtn");
-    const downloadLinksEl = document.getElementById("downloadLinks");
-    const aoiHint = document.getElementById("aoiHint");
-
-    // ── Leaflet map setup ─────────────────────────────────────────────────
-    const map = L.map("map").setView([20, 0], 2);
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap contributors",
-      maxZoom: 18,
-    }).addTo(map);
-
-    // FeatureGroup to hold drawn layers
-    const drawnItems = new L.FeatureGroup();
-    map.addLayer(drawnItems);
-
-    // Draw control — only polygon + rectangle to keep UI focused
-    const drawControl = new L.Control.Draw({
-      edit: { featureGroup: drawnItems },
-      draw: {
-        polygon: true,
-        rectangle: true,
-        circle: false,
-        marker: false,
-        polyline: false,
-        circlemarker: false,
-      },
-    });
-    map.addControl(drawControl);
-
-    // ── AOI helpers ───────────────────────────────────────────────────────
-    function updateAoiHint() {
-      if (currentAoiGeojson) {
-        aoiHint.textContent = "✔ Polygon drawn — AOI will be sent as GeoJSON geometry.";
-        aoiHint.className = "using-aoi";
-        clearAoiBtn.disabled = false;
-      } else {
-        aoiHint.textContent = "No polygon drawn — using country name below.";
-        aoiHint.className = "using-name";
-        clearAoiBtn.disabled = true;
-      }
-    }
-
-    // When a shape is created, save its geometry GeoJSON
-    map.on(L.Draw.Event.CREATED, function (e) {
-      // Only allow one polygon at a time
-      drawnItems.clearLayers();
-      drawnItems.addLayer(e.layer);
-      currentAoiGeojson = e.layer.toGeoJSON().geometry;
-      updateAoiHint();
-    });
-
-    // When shapes are edited, refresh GeoJSON
-    map.on(L.Draw.Event.EDITED, function (e) {
-      const layers = e.layers.getLayers();
-      if (layers.length > 0) {
-        currentAoiGeojson = layers[layers.length - 1].toGeoJSON().geometry;
-      }
-      updateAoiHint();
-    });
-
-    // When shapes are deleted
-    map.on(L.Draw.Event.DELETED, function () {
-      if (drawnItems.getLayers().length === 0) {
-        currentAoiGeojson = null;
-        updateAoiHint();
-      }
-    });
-
-    // Clear button
-    clearAoiBtn.addEventListener("click", function () {
-      drawnItems.clearLayers();
-      currentAoiGeojson = null;
-      updateAoiHint();
-    });
-
-    // ── Utility helpers ───────────────────────────────────────────────────
-    function setStatus(statusText) {
-      statusBadge.textContent = statusText;
-      statusBadge.className = `status ${statusText}`;
-    }
-
-    function jsonPretty(v) { return JSON.stringify(v, null, 2); }
-
-    function stopPolling() {
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-      stopBtn.disabled = true;
-    }
-
-    function renderDownloadState(statusData) {
-      const files = Array.isArray(statusData?.files) ? statusData.files : [];
-      if (!statusData?.ready || files.length === 0) {
-        downloadsEl.style.display = "none";
-        downloadBtn.style.display = "none";
-        downloadLinksEl.innerHTML = "";
-        task.downloadUrls = [];
-        return;
-      }
-      task.downloadUrls = files.map(f => f.url);
-      downloadBtn.style.display = "inline-block";
-      downloadLinksEl.innerHTML = files
-        .map((f) => `<a href="${f.url}" target="_blank" class="download-link" download>⬇ Download ${f.name.split('/').pop()}</a><br>`)
-        .join("");
-      downloadsEl.style.display = "block";
-    }
-
-    async function fetchExportStatus(apiBase, fileId) {
-      const res = await fetch(`${apiBase}/export-status/${fileId}`);
-      if (!res.ok) throw new Error(`GET /export-status/${fileId} → ${res.status}`);
-      return res.json();
-    }
-
-    async function cleanupExportFiles(apiBase, fileId) {
-      const res = await fetch(`${apiBase}/export-delete/${fileId}`, { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(`DELETE /export-delete/${fileId} → ${res.status}: ${jsonPretty(data)}`);
-      }
-      return res.json();
-    }
-
-    // ── Cloud cleanup (downloads are now plain <a> links above) ──────────
-    async function triggerDownloadAndCleanup() {
-      try {
-        const apiBase = document.getElementById("apiBase").value.trim();
-        if (!task.fileId) throw new Error("No file ID available for cleanup.");
-
-        const deleteResult = await cleanupExportFiles(apiBase, task.fileId);
-        output.textContent += `\n\nCleanup result:\n${jsonPretty(deleteResult)}`;
-        downloadsEl.style.display = "none";
-      } catch (err) {
-        output.textContent = `Cleanup error: ${err.message}`;
-      }
-    }
-
-    // ── Main export trigger ───────────────────────────────────────────────
-    async function startExport() {
-      // Validate: need at least country or drawn AOI
-      const countryVal = document.getElementById("country").value.trim();
-      if (!currentAoiGeojson && !countryVal) {
-        alert("Please draw a polygon on the map OR enter a country name before starting the export.");
-        return;
-      }
-
-      stopPolling();
-      startBtn.disabled = true;
-      output.textContent = "Sending request…";
-      jobIdEl.textContent = "—";
-      fileIdEl.textContent = "—";
-      task.taskId = null;
-      task.fileId = null;
-      task.downloadUrls = [];
-      downloadsEl.style.display = "none";
-      downloadBtn.style.display = "none";
-      downloadLinksEl.innerHTML = "";
-
-      try {
-        const apiBase = document.getElementById("apiBase").value.trim();
-
-        // Collect checked data sources
-        const dataSources = Array.from(
-          document.querySelectorAll(".check-group input[type=checkbox][id^='ds_']:checked")
-        ).map(cb => cb.value);
-
-        // Collect checked export formats
-        const exportFormats = Array.from(
-          document.querySelectorAll(".check-group input[type=checkbox][id^='ef_']:checked")
-        ).map(cb => cb.value);
-
-        const versionVal = document.getElementById("version").value.trim();
-        const modelAssetIdVal = document.getElementById("modelAssetId").value.trim();
-        const projectVal = document.getElementById("project").value.trim();
-
-        // Build payload — aoi_geojson takes priority over country
-        const payload = {
-          indicator_id: document.getElementById("indicator").value,
-          map_year: Number(document.getElementById("mapYear").value),
-          start_date: document.getElementById("start_date").value || null,
-          end_date: document.getElementById("end_date").value || null,
-          threshold: Number(document.getElementById("threshold").value),
-          resolution: document.getElementById("resolution").value,
-          priority: document.getElementById("priority").value,
-          data_sources: dataSources,
-          export_formats: exportFormats,
-          gcs_bucket: document.getElementById("gcsBucket").value.trim(),
-          gcs_prefix: document.getElementById("gcsPrefix").value.trim() || null,
-        };
-
-        if (versionVal) payload.version = versionVal;
-        if (modelAssetIdVal) payload.model_asset_id = modelAssetIdVal;
-        if (projectVal) payload.project = projectVal;
-
-        if (currentAoiGeojson) {
-          // Use drawn polygon; country is not required by the backend
-          payload.aoi_geojson = currentAoiGeojson;
-          payload.country = null;
-        } else {
-          // Fall back to typed country name
-          payload.country = countryVal;
-          payload.aoi_geojson = null;
-        }
-
-        const res = await fetch(`${apiBase}/exports`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(jsonPretty(data));
-
-        task.taskId = data.taskId || data.task_id || data.job_id;
-        task.fileId = data.fileId || data.file_id;
-        jobIdEl.textContent = task.taskId || "—";
-        fileIdEl.textContent = task.fileId || "—";
-        setStatus(data.status || "queued");
-        output.textContent = jsonPretty(data);
-        renderDownloadState({ ready: false, files: [] });
-        lastUpdateEl.textContent = new Date().toLocaleString();
-
-        if (!task.fileId) throw new Error("Response did not include fileId.");
-
-        // Calculate how many files to expect based on selected export formats
-        let expectedCount = 0;
-        if (exportFormats.includes("CSV")) expectedCount += 2;
-        if (exportFormats.includes("GeoJSON")) expectedCount += 2;
-        if (exportFormats.includes("GeoTIFF")) expectedCount += 1;
-
-        stopBtn.disabled = false;
-        pollTimer = setInterval(async () => {
-          try {
-            // 1. Check if the underlying job failed
-            try {
-              const jobRes = await fetch(`${apiBase}/exports/${task.taskId}`);
-              if (jobRes.ok) {
-                const jobData = await jobRes.json();
-                if (jobData.status === "failed") {
-                  setStatus("failed");
-                  output.textContent = "Backend Job Failed:\n" + (jobData.error || "Unknown error");
-                  stopPolling();
-                  return;
-                }
-              }
-            } catch (e) {
-              console.warn("Could not check job status:", e);
-            }
-
-            // 2. Check file readiness
-            const statusData = await fetchExportStatus(apiBase, task.fileId);
-            const currentFileCount = Array.isArray(statusData?.files) ? statusData.files.length : 0;
-
-            if (currentFileCount > 0 && currentFileCount < expectedCount) {
-              setStatus(`partial (received ${currentFileCount}/${expectedCount})`);
-            } else if (currentFileCount >= expectedCount) {
-              setStatus("completed");
-              output.textContent = jsonPretty(statusData);
-              renderDownloadState(statusData);
-              lastUpdateEl.textContent = new Date().toLocaleString();
-              stopPolling();
-              return;
-            } else {
-              setStatus("running");
-            }
-
-            output.textContent = jsonPretty(statusData);
-            renderDownloadState(statusData);
-            lastUpdateEl.textContent = new Date().toLocaleString();
-          } catch (err) {
-            setStatus("failed");
-            output.textContent = `Polling error: ${err.message}`;
-            stopPolling();
-          }
-        }, 4000);
-
-      } catch (err) {
-        setStatus("failed");
-        output.textContent = `Request error: ${err.message}`;
-      } finally {
-        startBtn.disabled = false;
-      }
-    }
-
-    // ── Event listeners ───────────────────────────────────────────────────
-    startBtn.addEventListener("click", startExport);
-    stopBtn.addEventListener("click", stopPolling);
-    downloadBtn.addEventListener("click", triggerDownloadAndCleanup);
-
-    async function fetchModels() {
-      const apiBase = document.getElementById("apiBase").value.trim();
-      const projectInput = document.getElementById("project");
-      const project = projectInput ? projectInput.value.trim() : "";
-      const indicator = document.getElementById("indicator").value;
-
-      if (!project) return;
-      const projectPath = `projects/${project}/assets`;
-
-      try {
-        const res = await fetch(`${apiBase}/models?project=${encodeURIComponent(projectPath)}&indicator=${encodeURIComponent(indicator)}`);
-        if (!res.ok) throw new Error("Failed to fetch models");
-        const data = await res.json();
-        const modelSelect = document.getElementById("modelAssetId");
-
-        // Clear previous options
-        modelSelect.innerHTML = '<option value="">-- Train a new model --</option>';
-
-        data.models.forEach(model => {
-          const opt = document.createElement("option");
-          opt.value = model;
-          opt.textContent = model;
-          modelSelect.appendChild(opt);
-        });
-      } catch (err) {
-        console.error("Error fetching models:", err);
-      }
-    }
-
-    fetchModels();
-    document.getElementById("project").addEventListener("change", fetchModels);
-
-    // Initialise hint on page load
-    updateAoiHint();
-  </script>
+    <script src="/js/admin.js?v=27July26"></script>
+    <script src="/js/sdg.js"></script>
+    <script src="/js/app.js?v=27July26"></script>
 </body>
-
 </html>

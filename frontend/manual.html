@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COMPASS - ORBIT Operations Center — User Manual</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛰️</text></svg>">
+    <style>
+        :root {
+            --brand: #0092D1;
+            --brand-dark: #004976;
+            --bg: #f8fafc;
+            --bg-card: #ffffff;
+            --text: #1e293b;
+            --text-secondary: #64748b;
+            --text-tertiary: #94a3b8;
+            --border: #e2e8f0;
+            --success: #16a34a;
+            --warning: #d97706;
+            --error: #dc2626;
+            --code-bg: #f1f5f9;
+            --radius: 12px;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0f172a;
+                --bg-card: #1e293b;
+                --text: #f1f5f9;
+                --text-secondary: #94a3b8;
+                --text-tertiary: #64748b;
+                --border: #334155;
+                --code-bg: #0f172a;
+            }
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Header */
+        .manual-header {
+            background: linear-gradient(135deg, var(--brand-dark) 0%, var(--brand) 100%);
+            color: #fff;
+            padding: 48px 24px 40px;
+            text-align: center;
+        }
+        .manual-header img { height: 40px; margin-bottom: 16px; filter: brightness(0) invert(1); }
+        .manual-header h1 { font-size: 2rem; font-weight: 700; letter-spacing: 0.15em; margin-bottom: 4px; }
+        .manual-header .subtitle { font-size: 0.95rem; color: rgba(255,255,255,0.9); font-weight: 400; }
+        .manual-header .version { font-size: 0.75rem; color: rgba(255,255,255,0.7); margin-top: 8px; }
+
+        /* Nav */
+        .manual-nav {
+            position: sticky;
+            top: 0;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+            z-index: 100;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+        .manual-nav-inner {
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            gap: 0;
+        }
+        .manual-nav a {
+            display: inline-block;
+            padding: 12px 16px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-decoration: none;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .manual-nav a:hover { color: var(--brand); border-bottom-color: var(--brand); }
+
+        /* Content */
+        .manual-content {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 32px 24px 80px;
+        }
+
+        section { margin-bottom: 48px; scroll-margin-top: 60px; }
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--brand-dark);
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--border);
+        }
+        @media (prefers-color-scheme: dark) { h2 { color: var(--brand); } }
+        h3 { font-size: 1.1rem; font-weight: 600; margin: 24px 0 8px; }
+        h4 { font-size: 0.95rem; font-weight: 600; margin: 16px 0 6px; }
+        p { margin-bottom: 12px; font-size: 0.92rem; color: var(--text-secondary); }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            margin: 16px 0;
+        }
+        .card-warn {
+            border-left: 4px solid var(--warning);
+            background: color-mix(in srgb, var(--warning) 8%, var(--bg-card));
+        }
+        .card-info {
+            border-left: 4px solid var(--brand);
+            background: color-mix(in srgb, var(--brand) 6%, var(--bg-card));
+        }
+        .card-success {
+            border-left: 4px solid var(--success);
+            background: color-mix(in srgb, var(--success) 6%, var(--bg-card));
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 0.85rem;
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        th {
+            text-align: left;
+            padding: 10px 14px;
+            background: var(--code-bg);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-tertiary);
+        }
+        td {
+            padding: 10px 14px;
+            border-top: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        tr:hover td { background: color-mix(in srgb, var(--brand) 3%, var(--bg-card)); }
+
+        /* Code */
+        code {
+            background: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.82rem;
+            font-family: 'Courier New', monospace;
+        }
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            overflow-x: auto;
+            margin: 12px 0;
+            font-size: 0.82rem;
+            line-height: 1.6;
+        }
+
+        /* Lists */
+        ul, ol { margin: 8px 0 16px 24px; }
+        li { margin-bottom: 6px; font-size: 0.92rem; color: var(--text-secondary); }
+        li strong { color: var(--text); }
+
+        /* States diagram */
+        .state-flow {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin: 16px 0;
+        }
+        .state-box {
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .state-box.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+        .state-box.success { background: var(--success); color: #fff; border-color: var(--success); }
+        .state-box.error { background: var(--error); color: #fff; border-color: var(--error); }
+        .state-arrow { font-size: 1.2rem; color: var(--text-tertiary); }
+
+        /* Back button */
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin: 24px 0;
+            padding: 8px 16px;
+            background: var(--brand);
+            color: #fff;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .back-link:hover { background: var(--brand-dark); transform: translateY(-1px); }
+
+        @media (max-width: 768px) {
+            .manual-header h1 { font-size: 1.5rem; }
+            .manual-content { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+
+<header class="manual-header">
+    <img src="/static/assets/UNOPS.png" alt="UNOPS">
+    <h1>COMPASS - ORBIT</h1>
+    <p class="subtitle">Operations Center — User Manual</p>
+    <p class="version">Version 1.0 · Lite MVP · April 2026</p>
+</header>
+
+<nav class="manual-nav">
+    <div class="manual-nav-inner">
+        <a href="#getting-started">Getting Started</a>
+        <a href="#map-layers">Map & Layers</a>
+        <a href="#urban-expansion">Urban Expansion</a>
+        <a href="#jobs">Jobs</a>
+        <a href="#analytics">Analytics</a>
+        <a href="#detection">Detection</a>
+        <a href="#faq">FAQ</a>
+    </div>
+</nav>
+
+<div class="manual-content">
+
+    <a href="/" class="back-link">← Back to Operations Center</a>
+
+    <!-- 1. Getting Started -->
+    <section id="getting-started">
+        <h2>1. Getting Started</h2>
+        <p>Open the Operations Center in your browser — no installation required.</p>
+
+        <h3>Signing In</h3>
+        <table>
+            <tr><th>Field</th><th>What to Enter</th></tr>
+            <tr><td><strong>Email</strong></td><td>Your UNOPS email address</td></tr>
+            <tr><td><strong>Password</strong></td><td>Any value (placeholder authentication)</td></tr>
+        </table>
+
+        <p>Quick access buttons are provided for demo roles:</p>
+        <table>
+            <tr><th>Role</th><th>Email</th><th>Capabilities</th></tr>
+            <tr><td><strong>Admin</strong></td><td><code>admin@unops.org</code></td><td>Full access, create & approve jobs, manage AOIs</td></tr>
+            <tr><td><strong>Analyst</strong></td><td><code>analyst@unops.org</code></td><td>Create and monitor analysis jobs</td></tr>
+            <tr><td><strong>Viewer</strong></td><td><code>viewer@unops.org</code></td><td>Read-only: browse map, layers, and analytics</td></tr>
+        </table>
+
+        <div class="card card-info">
+            <strong>Note:</strong> Authentication is currently placeholder-only. Any email/password combination will work. Google Cloud OAuth integration is planned for production.
+        </div>
+
+        <h3>Interface Layout</h3>
+        <ul>
+            <li><strong>Sidebar (left)</strong> — Navigation, layer toggles, theme switch, user info</li>
+            <li><strong>Header (top)</strong> — AOI selector, New Job button, GEE status</li>
+            <li><strong>Map (center)</strong> — Interactive Leaflet map with satellite imagery</li>
+            <li><strong>Panels (right)</strong> — Layer legend, Urban expansion timeline</li>
+            <li><strong>Stats bar (bottom)</strong> — Live AOI metrics from Earth Engine</li>
+        </ul>
+    </section>
+
+    <!-- 2. Map & Layers -->
+    <section id="map-layers">
+        <h2>2. Map View & Layers</h2>
+
+        <h3>Switching Areas of Interest</h3>
+        <p>Use the <strong>AOI dropdown</strong> in the header to switch between pre-configured areas. The map pans to the new area and all layers reload automatically.</p>
+
+        <h3>Available Intelligence Layers</h3>
+        <table>
+            <tr><th>Layer</th><th>What It Shows</th><th>Default</th></tr>
+            <tr><td><strong>Sentinel-2 True Color</strong></td><td>Cloud-free satellite photo (s2cloudless masked)</td><td>ON</td></tr>
+            <tr><td><strong>NDVI — Vegetation Index</strong></td><td>Green = healthy vegetation, Red = bare/stressed</td><td>OFF</td></tr>
+            <tr><td><strong>Change Detection</strong></td><td>Green = vegetation gain, Red = vegetation loss</td><td>OFF</td></tr>
+            <tr><td><strong>Urban Extent (Dynamic World)</strong></td><td>Built-up probability from DL embeddings</td><td>OFF</td></tr>
+            <tr><td><strong>Elevation (SRTM 30m)</strong></td><td>Terrain height above sea level</td><td>OFF</td></tr>
+        </table>
+
+        <div class="card card-warn">
+            <strong>About clouds:</strong> All imagery uses <strong>pixel-level cloud masking</strong> via the s2cloudless neural network. Pixels with cloud probability &gt;40% are removed before compositing. You always see cloudless, analysis-ready imagery.
+        </div>
+
+        <h3>Stats Bar</h3>
+        <p>Live statistics at the bottom of the map:</p>
+        <ul>
+            <li><strong>Area (km²)</strong> — Geographic size of the AOI</li>
+            <li><strong>Mean NDVI</strong> — Average vegetation health (0–1 scale)</li>
+            <li><strong>Urban %</strong> — Built-up fraction (Dynamic World)</li>
+            <li><strong>Vegetation %</strong> — Estimated vegetation coverage</li>
+            <li><strong>Source</strong> — Data pipeline identifier</li>
+        </ul>
+    </section>
+
+    <!-- 3. Urban Expansion -->
+    <section id="urban-expansion">
+        <h2>3. Urban Expansion Analysis</h2>
+        <p>The flagship SDG 11.3.1 feature. Click <strong>Urban Expansion</strong> in the sidebar to open the analysis panel. If you are on a different view (e.g. Jobs), it will <strong>automatically switch to the Map View</strong> first, then open the panel.</p>
+
+        <h3>What You See</h3>
+        <ol>
+            <li><strong>Bar Chart</strong> — Urban area (km²) for each year from 2018 to present</li>
+            <li><strong>Baseline Selector</strong> — Choose which year to use as the reference baseline</li>
+            <li><strong>Summary Stats</strong> — Baseline value, Current value, CAGR (Compound Annual Growth Rate)</li>
+            <li><strong>Year Buttons</strong> — Click to overlay that year's urban mask on the map</li>
+        </ol>
+
+        <h3>Using Year Overlays</h3>
+        <ol>
+            <li>Click a year button (e.g. <em>2020</em>) in the panel</li>
+            <li>The platform fetches the urban extent tile for that year from Earth Engine</li>
+            <li>The overlay appears on the map with a year-specific colour</li>
+            <li>Click multiple years to compare — overlays stack</li>
+            <li>Click an active year button again to remove its overlay</li>
+        </ol>
+
+        <h3>Year Colours</h3>
+        <table>
+            <tr><th>Year</th><th>Colour</th></tr>
+            <tr><td>2018</td><td style="color:#004976">■ Navy blue</td></tr>
+            <tr><td>2019</td><td style="color:#00695C">■ Teal</td></tr>
+            <tr><td>2020</td><td style="color:#1B5E20">■ Forest green</td></tr>
+            <tr><td>2021</td><td style="color:#827717">■ Olive</td></tr>
+            <tr><td>2022</td><td style="color:#E65100">■ Orange</td></tr>
+            <tr><td>2023</td><td style="color:#BF360C">■ Red-orange</td></tr>
+            <tr><td>2024</td><td style="color:#880E4F">■ Cherry</td></tr>
+            <tr><td>2025</td><td style="color:#AD1457">■ Magenta</td></tr>
+            <tr><td>2026</td><td style="color:#DA291C">■ UNOPS red</td></tr>
+        </table>
+
+        <div class="card card-info">
+            <strong>Gap filling:</strong> For years with incomplete satellite coverage (especially the current year), the system automatically extends the temporal window and fills any remaining gaps with the most recent available observations, ensuring clean, hole-free detection.
+        </div>
+
+        <h3>SDG 11.3.1 — LCRPGR Indicator</h3>
+        <p>Below the bar chart, the platform displays the official <strong>UN-Habitat SDG 11.3.1</strong> indicator — the <strong>Ratio of Land Consumption Rate to Population Growth Rate (LCRPGR)</strong>.</p>
+
+        <div class="card card-success">
+            <strong>Formula:</strong>
+            <pre style="margin-top:8px;background:transparent;border:none;padding:0">
+LCR = ln(U_current / U_baseline) / n
+PGR = ln(Pop_current / Pop_baseline) / n
+LCRPGR = LCR / PGR</pre>
+        </div>
+
+        <table>
+            <tr><th>Component</th><th>Data Source</th><th>Resolution</th></tr>
+            <tr><td><strong>Land Consumption (LCR)</strong></td><td>Dynamic World embeddings on Sentinel-2</td><td>10m</td></tr>
+            <tr><td><strong>Population (PGR)</strong></td><td>WorldPop (<code>WorldPop/GP/100m/pop</code>)</td><td>100m</td></tr>
+        </table>
+
+        <h4>Interpretation</h4>
+        <table>
+            <tr><th>LCRPGR Value</th><th>Icon</th><th>Meaning</th></tr>
+            <tr><td>&gt; 1</td><td>🔴</td><td>Urban sprawl — land consumed faster than population growth</td></tr>
+            <tr><td>= 1</td><td>⚖️</td><td>Proportional — land and population growing equally</td></tr>
+            <tr><td>0 – 1</td><td>🟢</td><td>Compact growth — population growing faster than land</td></tr>
+            <tr><td>&lt; 0</td><td>🟡</td><td>Contraction — built-up area or population declining</td></tr>
+        </table>
+
+        <p>The panel also displays:</p>
+        <ul>
+            <li><strong>LCR</strong> — Land consumption rate (%/yr)</li>
+            <li><strong>PGR</strong> — Population growth rate (%/yr)</li>
+            <li><strong>Population estimates</strong> — Baseline and current, from WorldPop</li>
+        </ul>
+    </section>
+
+    <!-- 4. Jobs -->
+    <section id="jobs">
+        <h2>4. Creating & Managing Jobs</h2>
+
+        <h3>Job Submission Wizard</h3>
+        <p>Click <strong>+ New Job</strong> in the header. The 4-step wizard guides you through:</p>
+        <ol>
+            <li><strong>Step 1 — AOI</strong>: Select a pre-defined area, or click <strong>"Draw New AOI on Map"</strong> to draw a rectangle by clicking two opposite corners on the map</li>
+            <li><strong>Step 2 — Analysis</strong>: Choose the indicator type (Urban Expansion, Damage, Flood, NDVI)</li>
+            <li><strong>Step 3 — Parameters</strong>: Set date range, resolution, priority, data sources, export formats</li>
+            <li><strong>Step 4 — Review</strong>: Review cost estimate (EECU) and submit</li>
+        </ol>
+        <div class="card card-info">
+            <strong>Tip:</strong> You can also submit jobs via the AI assistant using natural language. Example: <em>"Run urban expansion analysis on Geneva"</em>. AI-submitted jobs are fully tracked in <strong>Jobs</strong> and <strong>Job History</strong>.
+        </div>
+
+        <h3>Job State Machine</h3>
+        <div class="state-flow">
+            <span class="state-box">PENDING</span>
+            <span class="state-arrow">→</span>
+            <span class="state-box">ESTIMATING</span>
+            <span class="state-arrow">→</span>
+            <span class="state-box active">AWAITING APPROVAL</span>
+            <span class="state-arrow">→</span>
+            <span class="state-box">PROCESSING</span>
+            <span class="state-arrow">→</span>
+            <span class="state-box success">COMPLETED</span>
+        </div>
+
+        <table>
+            <tr><th>State</th><th>Meaning</th><th>User Action</th></tr>
+            <tr><td>PENDING</td><td>Job received, queued</td><td>Wait</td></tr>
+            <tr><td>ESTIMATING</td><td>Computing cost</td><td>Wait</td></tr>
+            <tr><td>AWAITING_APPROVAL</td><td>Cost ready, needs approval</td><td><strong>Approve</strong> or Cancel</td></tr>
+            <tr><td>PROCESSING</td><td>Earth Engine running</td><td>Wait or Cancel</td></tr>
+            <tr><td>COMPLETED</td><td>Results ready</td><td><strong>View</strong> on map</td></tr>
+            <tr><td>FAILED</td><td>Error occurred</td><td><strong>Retry</strong></td></tr>
+            <tr><td>CANCELLED</td><td>Manually stopped</td><td>—</td></tr>
+        </table>
+    </section>
+
+    <!-- 4.5. AI Assistant -->
+    <section id="ai-assistant">
+        <h2>5. AI Assistant (COMPASS AI)</h2>
+        <p>The platform includes an AI-powered assistant using <strong>Google Gemini</strong> via <strong>Vertex AI</strong> (no API key required — authenticated via IAM/ADC). Open it by clicking <strong>COMPASS AI</strong> in the sidebar.</p>
+
+        <h3>Ask the Map</h3>
+        <p>Ask natural-language questions about your current analysis. The AI has full context about your AOI, stats, urban expansion data, and SDG 11.3.1 metrics.</p>
+        <div class="card card-info">
+            <strong>Example questions:</strong>
+            <ul>
+                <li>"What does the LCRPGR ratio mean for this area?"</li>
+                <li>"How much has the urban footprint grown since 2018?"</li>
+                <li>"Compare vegetation vs urban coverage"</li>
+            </ul>
+        </div>
+
+        <h3>Narrative Reports</h3>
+        <p>Click the <strong>📊 Report</strong> quick action to generate a professional report. The AI will automatically reference the <strong>currently selected AOI by name</strong>, providing:</p>
+        <ul>
+            <li>Executive summary with key metrics</li>
+            <li>SDG 11.3.1 assessment and interpretation</li>
+            <li>Trend analysis and growth drivers</li>
+            <li>Policy recommendations</li>
+        </ul>
+        <p>Reports can be <strong>exported as PDF</strong> via the print dialog. If your browser blocks the print popup, the report is automatically downloaded as an HTML file instead.</p>
+
+        <h3>Natural-Language Job Submission</h3>
+        <p>Click <strong>🚀 New Job</strong> and describe what you want in plain English. The AI will geocode the location, create the AOI, and prepare the job parameters.</p>
+        <div class="card card-success">
+            <strong>Example:</strong> "Run urban expansion analysis on Monthey, Switzerland for the last 3 years"
+            <br>→ Auto-geocodes Monthey → creates AOI → prepares job with correct indicator and date range
+        </div>
+    </section>
+
+    <!-- 6. Analytics -->
+    <section id="analytics">
+        <h2>5. Analytics Dashboard</h2>
+        <p>Navigate to <strong>Analytics</strong> in the sidebar for mission-level KPIs:</p>
+        <table>
+            <tr><th>Metric</th><th>What It Shows</th></tr>
+            <tr><td>Total Jobs</td><td>All jobs ever submitted</td></tr>
+            <tr><td>Completed</td><td>Successfully finished analyses</td></tr>
+            <tr><td>Processing</td><td>Currently running</td></tr>
+            <tr><td>Failed</td><td>Errored jobs</td></tr>
+            <tr><td>Active AOIs</td><td>Number of defined Areas of Interest</td></tr>
+            <tr><td>Total Est. Cost</td><td>Sum of estimated costs in USD</td></tr>
+        </table>
+    </section>
+
+    <!-- 6. Detection -->
+    <section id="detection">
+        <h2>6. How Detection Works</h2>
+
+        <h3>Primary: Dynamic World Embeddings</h3>
+        <p><strong>Google Dynamic World</strong> (<code>GOOGLE/DYNAMICWORLD/V1</code>) applies a convolutional neural network (CNN) to every Sentinel-2 scene, producing per-pixel probabilities for 9 land use/land cover classes at 10m resolution.</p>
+
+        <div class="card card-success">
+            <strong>Why embeddings beat spectral indices:</strong>
+            <ul style="margin-top:8px">
+                <li>The CNN captures <strong>spatial context</strong> — road networks, rooftops, urban patterns</li>
+                <li>Uses <strong>all Sentinel-2 bands</strong>, not just two bands in a ratio</li>
+                <li>Pretrained on <strong>millions of global samples</strong>, reducing regional bias</li>
+                <li>Provides <strong>probabilistic output</strong> for confidence-weighted analysis</li>
+            </ul>
+        </div>
+
+        <h3>LULC Classes</h3>
+        <table>
+            <tr><th>Class</th><th>Index</th></tr>
+            <tr><td>Water</td><td>0</td></tr>
+            <tr><td>Trees</td><td>1</td></tr>
+            <tr><td>Grass</td><td>2</td></tr>
+            <tr><td>Flooded Vegetation</td><td>3</td></tr>
+            <tr><td>Crops</td><td>4</td></tr>
+            <tr><td>Shrub & Scrub</td><td>5</td></tr>
+            <tr><td><strong>Built Area</strong></td><td><strong>6</strong></td></tr>
+            <tr><td>Bare Ground</td><td>7</td></tr>
+            <tr><td>Snow & Ice</td><td>8</td></tr>
+        </table>
+
+        <h3>Cloud Removal Pipeline</h3>
+        <p>Two-stage approach ensures cloudless imagery:</p>
+        <ol>
+            <li><strong>Scene filtering</strong> — Exclude images with &gt;30% cloud cover</li>
+            <li><strong>Pixel masking</strong> — Join <code>S2_CLOUD_PROBABILITY</code> (s2cloudless neural network), mask pixels with probability &gt;40%, then compute temporal median on clear pixels only</li>
+        </ol>
+
+        <h3>Gap Filling</h3>
+        <p>For years with incomplete coverage (especially the current year), a <strong>2-pass approach</strong> is used:</p>
+        <ol>
+            <li><strong>Primary pass</strong>: Mean composite from the target year</li>
+            <li><strong>Gap-fill pass</strong>: Extend temporal window by 12+ months and use mosaic (most recent pixel) to fill any remaining null pixels</li>
+        </ol>
+        <p>This eliminates detection holes from cloud gaps or sparse acquisition.</p>
+
+        <h3>Validation: NDBI Cross-Check</h3>
+        <p>The Normalised Difference Built-up Index provides a physics-based secondary check:</p>
+        <pre>NDBI = (SWIR − NIR) / (SWIR + NIR) = (B11 − B8) / (B11 + B8)</pre>
+    </section>
+
+    <!-- 7. FAQ -->
+    <section id="faq">
+        <h2>7. FAQ & Troubleshooting</h2>
+
+        <h3>Why do layers take a few seconds to load?</h3>
+        <p>Each layer is computed on-the-fly by Google Earth Engine. The first request involves image retrieval, cloud masking, and compositing. GEE caches subsequent requests.</p>
+
+        <h3>Can I see imagery from a specific date?</h3>
+        <p>Map layers show 6-month median composites for maximum coverage. For date-specific analysis, create a job with your desired date range.</p>
+
+        <h3>Why does the expansion chart show different values for different AOIs?</h3>
+        <p>Urban area is computed per-AOI. Smaller AOIs (e.g. Usaquén at 65 km²) will naturally show less total urban area than the full Bogotá Metropolitan Area at 1,587 km².</p>
+
+        <h3>How accurate is the cost estimate?</h3>
+        <p>Estimates are heuristic-based (EECU coefficients × area × resolution). Actual costs may vary ±30%.</p>
+
+        <h3>The sidebar toggle disappeared</h3>
+        <p>The toggle (≡) is positioned to the right of the UNOPS logo. If the sidebar is collapsed, it appears as a small button at the top.</p>
+    </section>
+
+    <a href="/" class="back-link">← Back to Operations Center</a>
+
+</div>
+
+</body>
+</html>
