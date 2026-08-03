@@ -264,16 +264,66 @@ def _get_storage_client() -> "storage.Client":
     return storage.Client()
 
 _jobs: Dict[str, Dict[str, Any]] = {}
+_files: Dict[str, Dict[str, str]] = {}
+
+
+def _normalize_job_record(job_id_hint: Optional[str], job: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize historical persisted job records to the current API schema."""
+    normalized = dict(job or {})
+    job_id = normalized.get("job_id") or normalized.get("id") or job_id_hint or str(uuid4())
+    file_id = normalized.get("fileId") or normalized.get("file_id")
+    now = utc_now_iso()
+
+    status = str(normalized.get("status") or "queued").lower()
+    if status in {"pending", "estimating", "awaiting_approval"}:
+        status = "queued"
+    elif status in {"processing", "started"}:
+        status = "running"
+    elif status in {"complete", "succeeded", "success"}:
+        status = "completed"
+    elif status in {"cancelled", "canceled"}:
+        status = "cancelled"
+    elif status not in {"queued", "running", "completed", "failed", "cancelled"}:
+        status = "failed"
+
+    normalized["job_id"] = job_id
+    normalized["taskId"] = normalized.get("taskId") or normalized.get("task_id") or job_id
+    normalized["fileId"] = file_id
+    normalized["status"] = status
+    normalized["created_at"] = normalized.get("created_at") or normalized.get("submitted_at") or now
+    normalized["updated_at"] = normalized.get("updated_at") or normalized.get("completed_at") or normalized["created_at"]
+    normalized["result"] = normalized.get("result")
+    normalized["error"] = normalized.get("error")
+    return normalized
+
+
+def _rebuild_file_record_from_job(job: Dict[str, Any]) -> None:
+    """Rebuild in-memory file lookup records from persisted jobs after cold starts."""
+    file_id = job.get("fileId") or job.get("file_id")
+    if not file_id:
+        return
+    result = job.get("result") or {}
+    bucket = (result.get("gcs_bucket") or os.getenv("GCS_BUCKET", "unops")).strip()
+    prefix = (result.get("gcs_prefix") or f"{os.getenv('GCS_PREFIX', 'exports/unops').strip().strip('/')}/{file_id}").strip().strip("/")
+    _files[file_id] = {"bucket": bucket, "file_prefix": prefix}
+
+
 try:
     _client = _get_storage_client()
     _bucket = _client.bucket(os.getenv("GCS_BUCKET", "unops"))
     _blob = _bucket.blob("orbit_system/jobs.json")
     if _blob.exists():
-        _jobs = json.loads(_blob.download_as_text())
+        loaded_jobs = json.loads(_blob.download_as_text())
+        if isinstance(loaded_jobs, dict):
+            _jobs = {
+                str(job_id): _normalize_job_record(str(job_id), job)
+                for job_id, job in loaded_jobs.items()
+                if isinstance(job, dict)
+            }
+            for job in _jobs.values():
+                _rebuild_file_record_from_job(job)
 except Exception as e:
     print(f"Warning: Could not load jobs from GCS: {e}")
-
-_files: Dict[str, Dict[str, str]] = {}
 
 
 def _normalize_gcs_prefix(prefix: Optional[str]) -> str:
@@ -472,7 +522,16 @@ def create_export(request: ExportRequest, background_tasks: BackgroundTasks) -> 
 def list_exports():
     """Returns all jobs from the system."""
     with _jobs_lock:
-        return [ExportStatusResponse(**job) for job in _jobs.values()]
+        responses: list[ExportStatusResponse] = []
+        for job_id, job in list(_jobs.items()):
+            try:
+                normalized = _normalize_job_record(str(job_id), job)
+                _jobs[str(job_id)] = normalized
+                _rebuild_file_record_from_job(normalized)
+                responses.append(ExportStatusResponse(**normalized))
+            except Exception as exc:
+                print(f"Warning: Skipping invalid job record {job_id}: {exc}")
+        return responses
 
 
 @app.get("/exports/{job_id}", response_model=ExportStatusResponse)
