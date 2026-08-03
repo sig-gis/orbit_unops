@@ -701,6 +701,10 @@ const Jobs = {
                 
                 const job = await API.getJob(jobId);
                 this._viewJobLayers(job);
+                if (typeof SDG !== 'undefined' && SDG.openPanel && SDG.loadJobDashboard) {
+                    SDG.openPanel();
+                    await SDG.loadJobDashboard(job, 'sdg-hero-data');
+                }
                 
 
                 // Remove loading overlay

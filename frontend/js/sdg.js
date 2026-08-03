@@ -93,7 +93,7 @@ const SDG = {
             const baseUrl = `https://storage.googleapis.com/unops/exports/unops/${job.fileId}/urban_extent_${countryFmt}_${dates}`;
             
             const parseCSV = (url) => new Promise((resolve, reject) => {
-                const proxyUrl = `http://localhost:8000/proxy-csv?url=${encodeURIComponent(url)}`;
+                const proxyUrl = `${API.baseUrl}/proxy-csv?url=${encodeURIComponent(url)}`;
                 Papa.parse(proxyUrl, {
                     download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
                     transformHeader: h => h.trim(),
@@ -152,7 +152,7 @@ const SDG = {
             const baseUrl = `https://storage.googleapis.com/unops/exports/unops/${fileId}/urban_extent_${countryFmt}_${dates}`;
             
             const parseCSV = (url) => new Promise((resolve, reject) => {
-                const proxyUrl = `http://localhost:8000/proxy-csv?url=${encodeURIComponent(url)}`;
+                const proxyUrl = `${API.baseUrl}/proxy-csv?url=${encodeURIComponent(url)}`;
                 Papa.parse(proxyUrl, {
                     download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
                     transformHeader: h => h.trim(),

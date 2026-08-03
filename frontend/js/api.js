@@ -3,7 +3,7 @@
    ═══════════════════════════════════════════════════════ */
 
 const API = {
-    baseUrl: 'http://localhost:8000',
+    baseUrl: (window.ORBIT_CONFIG && window.ORBIT_CONFIG.API_BASE_URL) || 'http://localhost:8000',
 
     _getHeaders() {
         return { 'Content-Type': 'application/json' };
@@ -28,6 +28,7 @@ const API = {
 
     get(path)        { return this._fetch('GET', path); },
     post(path, body) { return this._fetch('POST', path, body); },
+    del(path)        { return this._fetch('DELETE', path); },
 
     // ── Auth ──
     login(email, password) { return Promise.resolve({ access_token: "mock", user: Auth.user }); },
@@ -112,7 +113,8 @@ const API = {
             "queued": "PENDING",
             "running": "PROCESSING",
             "completed": "COMPLETED",
-            "failed": "FAILED"
+            "failed": "FAILED",
+            "cancelled": "CANCELLED"
         };
         return {
             id: sdkData.job_id,
@@ -128,6 +130,7 @@ const API = {
                 "population_change_pct": "Completed", 
                 "land_consumption_pct": "Check Downloads"
             } : null,
+            result: sdkData.result || null,
             layers: sdkData.result?.layers || []
         };
     },
@@ -137,6 +140,7 @@ const API = {
         const data = await this.post(`/exports/${id}/cancel`, {});
         return this._mapSdkJobToUiJob(data);
     },
+    deleteJob(id) { return this.del(`/exports/${id}`); },
 
     // ── Layers ──
     getUrbanExpansion(aoiId) { return Promise.resolve({}); }

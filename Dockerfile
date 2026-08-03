@@ -21,4 +21,4 @@ COPY . .
 # host. The module path matches the package layout:
 #   orbit_unops/pipeline/api.py  ->  orbit_unops.pipeline.api:app
 EXPOSE 8000
-CMD ["uvicorn", "pipeline.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn pipeline.api:app --host 0.0.0.0 --port ${PORT:-8000}"]

@@ -13,8 +13,7 @@ load_dotenv()
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 import google.auth
 from google.auth.transport.requests import Request as GoogleAuthRequest
@@ -219,7 +218,7 @@ class ExportStatusResponse(BaseModel):
     job_id: str
     taskId: Optional[str] = None
     fileId: Optional[str] = None
-    status: Literal["queued", "running", "completed", "failed"]
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
     created_at: str
     updated_at: str
     result: Optional[Dict[str, Any]] = None
@@ -238,6 +237,12 @@ class FileDeleteResponse(BaseModel):
 
 
 app = FastAPI(title="UNOPS Export API", version="1.0.0")
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    """Redirect backend root to the FastAPI documentation."""
+    return RedirectResponse(url="/docs")
 
 # POC-friendly CORS setup (tighten in production).
 app.add_middleware(
@@ -548,6 +553,23 @@ def cancel_export(job_id: str) -> ExportStatusResponse:
         return ExportStatusResponse(**_jobs[job_id])
 
 
+@app.delete("/exports/{job_id}")
+def delete_export(job_id: str) -> Dict[str, Any]:
+    """Delete a job record without deleting exported GCS files."""
+    with _jobs_lock:
+        job = _jobs.pop(job_id, None)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+
+        file_id = job.get("fileId") or job.get("file_id")
+        if file_id:
+            _files.pop(file_id, None)
+
+        _save_jobs()
+
+    return {"deleted": True, "job_id": job_id, "fileId": file_id}
+
+
 @app.get("/export-status/{fileId}", response_model=FileStatusResponse)
 def get_export_status(fileId: str) -> FileStatusResponse:
     files = _list_files_for_file_id(fileId)
@@ -639,24 +661,3 @@ def proxy_csv(url: str):
             return Response(content=response.read(), media_type="text/csv")
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"File not found or failed to fetch: {str(e)}")
-
-# --- Serve Frontend SPA ---
-frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-
-if os.path.exists(frontend_dir):
-    # Mount asset directories so /css, /js, and /assets resolve correctly
-    app.mount("/css", StaticFiles(directory=os.path.join(frontend_dir, "css")), name="css")
-    app.mount("/js", StaticFiles(directory=os.path.join(frontend_dir, "js")), name="js")
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dir, "assets")), name="assets")
-
-    @app.get("/")
-    def serve_index():
-        return FileResponse(os.path.join(frontend_dir, "index.html"))
-
-    # Catch-all route to serve other HTML files (like manual.html) or fallback to index.html for SPA routing
-    @app.get("/{full_path:path}")
-    def serve_spa(full_path: str):
-        file_path = os.path.join(frontend_dir, full_path)
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            return FileResponse(file_path)
-        return FileResponse(os.path.join(frontend_dir, "index.html"))
