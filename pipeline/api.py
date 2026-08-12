@@ -2,11 +2,16 @@
 
 """FastAPI service for frontend-triggered Earth Engine export jobs."""
 
+import os
+
+# Configure GDAL for Cloud Run implicit credentials
+os.environ["CPL_MACHINE_OAUTH2_USE"] = "YES"
+os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "EMPTY_DIR"
+
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
