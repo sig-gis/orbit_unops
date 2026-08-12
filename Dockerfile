@@ -7,6 +7,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Runtime library required by Rasterio / TiTiler
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libexpat1 \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # ---- Python dependencies ----------------------------------------------
 # Copy only the requirements file first so Docker can cache this layer
 # separately from the source code.
