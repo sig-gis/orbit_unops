@@ -3,10 +3,25 @@
 """FastAPI service for frontend-triggered Earth Engine export jobs."""
 
 import os
+import threading
+import time
+import google.auth
+from google.auth.transport.requests import Request as GoogleAuthRequest
 
-# Configure GDAL for Cloud Run implicit credentials
-os.environ["CPL_MACHINE_OAUTH2_USE"] = "YES"
+# Configure GDAL for Cloud Run using explicit Bearer tokens
 os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "EMPTY_DIR"
+
+def _keep_gdal_token_fresh():
+    while True:
+        try:
+            credentials, _ = google.auth.default()
+            credentials.refresh(GoogleAuthRequest())
+            os.environ["GDAL_HTTP_BEARER"] = credentials.token
+        except Exception as e:
+            print(f"Warning: Failed to refresh GDAL token: {e}")
+        time.sleep(1800) # 30 minutes
+
+threading.Thread(target=_keep_gdal_token_fresh, daemon=True).start()
 
 from datetime import datetime, timedelta, timezone
 from threading import Lock
@@ -578,6 +593,13 @@ def list_exports():
                 normalized = _normalize_job_record(str(job_id), job)
                 _jobs[str(job_id)] = normalized
                 _rebuild_file_record_from_job(normalized)
+                
+                # Rewrite gs:// URLs to https:// to force TiTiler to use standard HTTP auth
+                if normalized.get("result") and normalized["result"].get("layers"):
+                    for layer in normalized["result"]["layers"]:
+                        if "tile_url" in layer and "gs://" in layer["tile_url"]:
+                            layer["tile_url"] = layer["tile_url"].replace("gs://", "https://storage.googleapis.com/")
+                
                 responses.append(ExportStatusResponse(**normalized))
             except Exception as exc:
                 print(f"Warning: Skipping invalid job record {job_id}: {exc}")
