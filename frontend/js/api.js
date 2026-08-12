@@ -149,6 +149,8 @@ const API = {
                     const bucket = "unops"; // Default bucket for old jobs
                     const prefix = sdkData.result.geotiff_file_name_prefix;
                     layer.tile_url = `${this.baseUrl}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=gs://${bucket}/${prefix}.tif&bidx=1&nodata=0&colormap=%7B"1":"%23FF5722FF"%7D`;
+                    // layer.tile_url = `${this.baseUrl}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=gs://${bucket}/${prefix}.tif&bidx=1&nodata=0&colormap=%7B%221%22%3A%22%23FF5722FF%22%7D`;
+
                 }
                 return layer;
             })
