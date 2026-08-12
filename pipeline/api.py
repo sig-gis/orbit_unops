@@ -15,8 +15,13 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
+from titiler.core.factory import TilerFactory
+from titiler.core.errors import add_exception_handlers, DEFAULT_STATUS_CODES
 import google.auth
 from google.auth.transport.requests import Request as GoogleAuthRequest
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import rio_tiler.errors
 
 try:
     from google.cloud import storage
@@ -223,6 +228,7 @@ class ExportStatusResponse(BaseModel):
     updated_at: str
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    request: Optional[Dict[str, Any]] = None
 
 
 class FileStatusResponse(BaseModel):
@@ -237,6 +243,11 @@ class FileDeleteResponse(BaseModel):
 
 
 app = FastAPI(title="UNOPS Export API", version="1.0.0")
+add_exception_handlers(app, DEFAULT_STATUS_CODES)
+
+@app.exception_handler(rio_tiler.errors.TileOutsideBounds)
+async def tile_outside_bounds_handler(request: Request, exc: Exception):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
 @app.get("/", include_in_schema=False)
@@ -252,6 +263,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+try:
+    cog = TilerFactory()
+    app.include_router(cog.router, prefix="/cog", tags=["Cloud Optimized GeoTIFF"])
+except Exception as e:
+    print(f"Failed to mount TiTiler router: {e}")
 
 import os
 import json
@@ -364,6 +381,8 @@ def _signed_gcs_url(bucket_name: str, blob_name: str, expiration_hours: int = 24
     )
 
 
+_resolved_url_mode = None
+
 def _build_download_url(bucket_name: str, blob_name: str) -> str:
     """Build a download URL based on GCS_URL_MODE.
 
@@ -372,6 +391,7 @@ def _build_download_url(bucket_name: str, blob_name: str) -> str:
     - public: always public object URLs
     - auto (default): try signed first, fall back to public URL
     """
+    global _resolved_url_mode
     url_mode = os.getenv("GCS_URL_MODE", "auto").strip().lower()
 
     if url_mode == "public":
@@ -381,22 +401,25 @@ def _build_download_url(bucket_name: str, blob_name: str) -> str:
         return _signed_gcs_url(bucket_name, blob_name)
 
     if url_mode == "auto":
-        try:
+        if _resolved_url_mode == "public":
+            return _public_gcs_url(bucket_name, blob_name)
+        elif _resolved_url_mode == "signed":
             return _signed_gcs_url(bucket_name, blob_name)
+
+        try:
+            url = _signed_gcs_url(bucket_name, blob_name)
+            _resolved_url_mode = "signed"
+            return url
         except Exception:
+            _resolved_url_mode = "public"
             return _public_gcs_url(bucket_name, blob_name)
 
     raise RuntimeError("Invalid GCS_URL_MODE. Use one of: signed, public, auto")
 
 
 def _list_files_for_file_id(file_id: str) -> list[Dict[str, str]]:
-    with _jobs_lock:
-        file_record = _files.get(file_id)
-    if not file_record:
-        raise HTTPException(status_code=404, detail=f"fileId '{file_id}' not found")
-
-    bucket_name = file_record["bucket"]
-    file_prefix = file_record.get("file_prefix")
+    bucket_name = os.environ.get("GCS_BUCKET", "unops")
+    file_prefix = os.environ.get("GCS_PREFIX", "exports/unops") + f"/{file_id}"
     client = _get_storage_client()
     bucket = client.bucket(bucket_name)
 
@@ -508,6 +531,7 @@ def create_export(request: ExportRequest, background_tasks: BackgroundTasks) -> 
             "updated_at": created_at,
             "result": {"country": request.country} if request.country else None,
             "error": None,
+            "request": request.model_dump(),
         }
         _files[file_id] = {
             "bucket": os.getenv("GCS_BUCKET", "unops").strip(),
@@ -516,6 +540,27 @@ def create_export(request: ExportRequest, background_tasks: BackgroundTasks) -> 
 
     background_tasks.add_task(_run_export_job, job_id, request)
     return ExportStatusResponse(**_jobs[job_id])
+
+
+@app.post("/exports/{job_id}/retry", response_model=ExportStatusResponse, status_code=202)
+def retry_export(job_id: str, background_tasks: BackgroundTasks) -> ExportStatusResponse:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+        
+        if not job.get("request"):
+            raise HTTPException(status_code=400, detail="Cannot retry: original request payload not found")
+
+        # Reset status
+        job["status"] = "queued"
+        job["error"] = None
+        job["updated_at"] = utc_now_iso()
+        
+        request_obj = ExportRequest(**job["request"])
+
+    background_tasks.add_task(_run_export_job, job_id, request_obj)
+    return ExportStatusResponse(**job)
 
 
 @app.get("/exports", response_model=list[ExportStatusResponse])
@@ -532,6 +577,21 @@ def list_exports():
             except Exception as exc:
                 print(f"Warning: Skipping invalid job record {job_id}: {exc}")
         return responses
+
+
+@app.delete("/exports/{job_id}", status_code=204)
+def delete_export(job_id: str):
+    """Deletes a job from the system."""
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
+        
+        file_id = job.get("file_id")
+        if file_id and file_id in _files:
+            del _files[file_id]
+            
+        del _jobs[job_id]
 
 
 @app.get("/exports/{job_id}", response_model=ExportStatusResponse)
@@ -645,12 +705,7 @@ def get_download_links(fileId: str) -> FileStatusResponse:
 def delete_export_files(fileId: str) -> FileDeleteResponse:
     files = _list_files_for_file_id(fileId)
 
-    with _jobs_lock:
-        file_record = _files.get(fileId)
-    if not file_record:
-        raise HTTPException(status_code=404, detail=f"fileId '{fileId}' not found")
-
-    bucket_name = file_record["bucket"]
+    bucket_name = os.environ.get("GCS_BUCKET", "unops")
     client = _get_storage_client()
     bucket = client.bucket(bucket_name)
 

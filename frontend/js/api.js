@@ -19,6 +19,7 @@ const API = {
                 const err = await res.json().catch(() => ({ detail: res.statusText }));
                 throw new Error(err.detail || `Request failed: ${res.status}`);
             }
+            if (res.status === 204) return null;
             return res.json();
         } catch (error) {
             console.error("API Fetch Error:", error);
@@ -28,7 +29,7 @@ const API = {
 
     get(path)        { return this._fetch('GET', path); },
     post(path, body) { return this._fetch('POST', path, body); },
-    del(path)        { return this._fetch('DELETE', path); },
+    delete(path)     { return this._fetch('DELETE', path); },
 
     // ── Auth ──
     login(email, password) { return Promise.resolve({ access_token: "mock", user: Auth.user }); },
@@ -64,11 +65,18 @@ const API = {
         return this._mapSdkJobToUiJob(data);
     },
 
-    async getJobDownloads(id) { 
-        // We need the fileId from the job to get downloads
-        const job = await this.get(`/exports/${id}`);
-        if (!job.fileId) return [];
-        const data = await this.get(`/download-links/${job.fileId}`);
+    async retryJob(id) {
+        const data = await this.post(`/exports/${id}/retry`);
+        return this._mapSdkJobToUiJob(data);
+    },
+
+    async deleteJob(id) {
+        return this.delete(`/exports/${id}`);
+    },
+
+    async getJobDownloads(fileId) { 
+        if (!fileId) return [];
+        const data = await this.get(`/download-links/${fileId}`);
         return data.files || [];
     },
 
@@ -119,11 +127,11 @@ const API = {
         return {
             id: sdkData.job_id,
             fileId: sdkData.fileId,
-            indicator_id: "SDG_11_3_1",
+            indicator_id: sdkData.request ? sdkData.request.indicator_id : "11.3.1",
             state: stateMap[sdkData.status] || "PENDING",
             submitted_at: sdkData.created_at,
-            aoi_name: sdkData.result?.country || "Custom AOI",
-            aoi_id: sdkData.result?.country || "custom",
+            aoi_name: sdkData.result?.country || sdkData.request?.country || "Custom AOI",
+            aoi_id: sdkData.result?.country || sdkData.request?.country || "custom",
             date_range_start: sdkData.result?.year_start,
             date_range_end: sdkData.result?.year_end,
             results_data: sdkData.result ? {
@@ -131,7 +139,19 @@ const API = {
                 "land_consumption_pct": "Check Downloads"
             } : null,
             result: sdkData.result || null,
-            layers: sdkData.result?.layers || []
+            layers: (sdkData.result?.layers || []).map(layer => {
+                // If the layer is already marked as a COG URL, just prepend the base URL
+                if (layer.is_cog) {
+                    layer.tile_url = `${this.baseUrl}${layer.tile_url}`;
+                } 
+                // Legacy fallback: if it's an old EE MapID but we have the GCS filename, rewrite it dynamically!
+                else if (sdkData.result?.geotiff_file_name_prefix) {
+                    const bucket = "unops"; // Default bucket for old jobs
+                    const prefix = sdkData.result.geotiff_file_name_prefix;
+                    layer.tile_url = `${this.baseUrl}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=gs://${bucket}/${prefix}.tif&bidx=1&nodata=0&colormap=%7B"1":"%23FF5722FF"%7D`;
+                }
+                return layer;
+            })
         };
     },
 

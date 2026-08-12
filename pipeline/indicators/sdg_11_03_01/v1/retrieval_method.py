@@ -547,13 +547,13 @@ def run_11_03_01(
     })
 
     try:
-        preview_img = output_image.select(year_names[-1]).clip(boundary_geometry).selfMask()
-        map_id = preview_img.getMapId({'min': 1, 'max': 1, 'palette': ['FF5722']})
+        url = f"/cog/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}?url=gs://{gcs_bucket}/{geotiff_file_name_prefix}.tif&bidx=1&nodata=0&colormap=%7B%221%22:%22%23FF5722FF%22%7D"
         result["layers"] = [
             {
                 "id": "urban_extent",
                 "name": f"Urban Extent ({year_end})",
-                "tile_url": map_id["tile_fetcher"].url_format
+                "tile_url": url,
+                "is_cog": True
             }
         ]
     except Exception as e:

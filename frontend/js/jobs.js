@@ -12,6 +12,33 @@ const Jobs = {
 
     init() {
         this._bindEvents();
+        this.startPolling();
+    },
+
+    startPolling() {
+        if (this._pollInterval) clearInterval(this._pollInterval);
+        this._pollInterval = setInterval(async () => {
+            const hasActive = this._jobs.some(j => !['COMPLETED', 'FAILED', 'CANCELLED'].includes(j.state));
+            if (hasActive) {
+                // Background refresh without throwing errors on UI
+                try {
+                    const latestJobs = await API.listJobs();
+                    this._jobs = latestJobs;
+                    this._renderJobsTable();
+                    this._renderHistoryTable();
+                    this._updateBadge();
+                } catch (e) {
+                    console.warn("Polling failed:", e);
+                }
+            }
+        }, 5000);
+    },
+
+    stopPolling() {
+        if (this._pollInterval) {
+            clearInterval(this._pollInterval);
+            this._pollInterval = null;
+        }
     },
 
     _bindEvents() {
@@ -597,13 +624,15 @@ const Jobs = {
 
     _indicatorLabel(id) {
         const names = {
-            SDG_11_3_1: 'Urban Expansion',
-            DAMAGE_MAP_SAR: 'Damage Map',
-            FLOOD_EXTENT: 'Flood Extent',
-            VEGETATION_HEALTH: 'Vegetation',
-            PROTOTYPE_MODEL: 'Prototype',
+            '11.3.1': 'SDG 11.3.1',
+            '15.1.1': 'SDG 15.1.1',
+            '6.6.1': 'SDG 6.6.1',
+            '15.4.2': 'SDG 15.4.2',
+            '15.3.1': 'SDG 15.3.1',
+            '11.1.1': 'SDG 11.1.1',
+            'SDG_11_3_1': 'SDG 11.3.1'
         };
-        return names[id] || id;
+        return names[id] || `SDG ${id}`;
     },
 
     _isAdmin() {
@@ -687,7 +716,6 @@ const Jobs = {
                 }
 
                 App.navigate('map');
-                
                 // Show loading overlay
                 const loader = document.createElement('div');
                 loader.id = 'map-job-loader';
@@ -714,6 +742,7 @@ const Jobs = {
             } else if (action === 'delete') {
                 if (confirm('Are you sure you want to delete this job record? This cannot be undone.')) {
                     await API.deleteJob(jobId);
+                    await this.loadJobs();
                     Toast.show('Job record deleted', 'success');
                 }
             }

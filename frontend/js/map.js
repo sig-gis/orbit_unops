@@ -48,6 +48,11 @@ const MapModule = {
         };
         L.control.layers(baseMaps, null, { position: 'bottomleft' }).addTo(this.map);
 
+        // Ensure basemaps stay behind data layers when switching
+        this.map.on('baselayerchange', (e) => {
+            e.layer.bringToBack();
+        });
+
         // Drawing layer
         this.drawnItems = new L.FeatureGroup();
         this.map.addLayer(this.drawnItems);
@@ -195,24 +200,36 @@ const MapModule = {
         const legend = L.control({ position: 'bottomright' });
         legend.onAdd = function (map) {
             const div = L.DomUtil.create('div', 'info legend');
-            div.style.backgroundColor = 'var(--bg-panel)';
+            div.style.backgroundColor = '#FFFFFF';
             div.style.padding = '12px';
             div.style.borderRadius = '8px';
             div.style.boxShadow = '0 4px 15px rgba(0,0,0,0.1)';
             div.style.border = '1px solid var(--border-color)';
-            div.style.color = 'var(--text-primary)';
+            div.style.color = '#333333';
             div.style.minWidth = '200px';
             div.innerHTML = `
-                <div style="font-weight:bold;margin-bottom:8px;font-size:0.9rem;">${title}</div>
-                <div style="display:flex;align-items:center;gap:8px;font-size:0.8rem;color:var(--text-muted)">
-                    <div style="width:16px;height:16px;background:${color};border-radius:2px;"></div>
-                    ${desc}
+                <div id="legend-content">
+                    <div style="font-weight:bold;margin-bottom:8px;font-size:0.9rem;display:flex;justify-content:space-between;align-items:center;">
+                        <span>${title}</span>
+                        <i data-lucide="minimize-2" class="icon sm" style="cursor:pointer;" onclick="document.getElementById('legend-content').style.display='none'; document.getElementById('legend-minimized').style.display='flex';"></i>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;font-size:0.8rem;color:#555555">
+                        <div style="width:16px;height:16px;background:${color};border-radius:2px;"></div>
+                        ${desc}
+                    </div>
+                </div>
+                <div id="legend-minimized" style="display:none; align-items:center; justify-content:center; cursor:pointer;" onclick="document.getElementById('legend-minimized').style.display='none'; document.getElementById('legend-content').style.display='block';">
+                    <i data-lucide="layers" class="icon" style="color:var(--brand-primary)"></i>
+                    <span style="font-weight:600;font-size:0.9rem;margin-left:0.5rem;color:#333;">Legend</span>
                 </div>
             `;
             return div;
         };
         legend.addTo(this.map);
         this.activeLegend = legend;
+        if (window.lucide) {
+            setTimeout(() => lucide.createIcons(), 10);
+        }
     },
 
     removeLegend() {
@@ -349,12 +366,18 @@ const MapModule = {
     },
 
     addTileLayer(id, url, options = {}) {
-        // Remove existing layer with same id
+        if (!url) return;
+
+        // Prevent reloading if the same layer is already on the map
         if (this.dataLayers[id]) {
+            if (this.dataLayers[id]._url === url) {
+                if (options.visible !== false && !this.map.hasLayer(this.dataLayers[id])) {
+                    this.dataLayers[id].addTo(this.map);
+                }
+                return this.dataLayers[id];
+            }
             this.map.removeLayer(this.dataLayers[id]);
         }
-
-        if (!url) return;
 
         const layer = L.tileLayer(url, {
             opacity: options.opacity || 0.7,
@@ -387,12 +410,28 @@ const MapModule = {
 
     setLayerOpacity(id, opacity) {
         const layer = this.dataLayers[id];
-        if (layer) layer.setOpacity(opacity);
+        if (layer) {
+            layer.setOpacity(opacity);
+        }
+    },
+
+    clearAllDataLayers() {
+        for (const id in this.dataLayers) {
+            this.map.removeLayer(this.dataLayers[id]);
+        }
+        this.dataLayers = {};
+        if (this.aoiLayer) {
+            this.aoiLayer.clearLayers();
+        }
+        this.removeLegend();
     },
 
     invalidateSize() {
         if (this.map) {
-            setTimeout(() => this.map.invalidateSize(), 100);
+            this.map.invalidateSize();
         }
-    },
+    }
 };
+
+// Export to window for global access
+window.MapModule = MapModule;

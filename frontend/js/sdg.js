@@ -21,6 +21,21 @@ const SDG = {
             this.closeBtn.addEventListener('click', () => this.closePanel());
         }
 
+        const minBtn = document.getElementById('sdg-panel-minimize');
+        const resBtn = document.getElementById('sdg-panel-restore');
+        if (minBtn) {
+            minBtn.addEventListener('click', () => {
+                if (this.panel) this.panel.style.display = 'none';
+                if (resBtn) resBtn.style.display = 'flex';
+            });
+        }
+        if (resBtn) {
+            resBtn.addEventListener('click', () => {
+                if (this.panel) this.panel.style.display = 'flex';
+                resBtn.style.display = 'none';
+            });
+        }
+
         document.getElementById('btn-submit-sdg-job')?.addEventListener('click', () => {
             this.submitJob();
         });
@@ -65,8 +80,16 @@ const SDG = {
     },
 
     closePanel() {
-        this.panel.style.display = 'none';
-        this.btn?.classList.remove('active');
+        if (this.panel) this.panel.style.display = 'none';
+        const resBtn = document.getElementById('sdg-panel-restore');
+        if (resBtn) resBtn.style.display = 'none';
+        if (this.btn) this.btn.classList.remove('active');
+        App.currentSDG = null;
+        
+        // Clean up the map when the panel closes
+        if (window.MapModule) {
+            MapModule.clearAllDataLayers();
+        }
     },
 
     onCountrySelected(countryName) {
@@ -139,19 +162,38 @@ const SDG = {
             // Find latest completed job for this country
             const jobs = await API.listJobs();
             const latestJob = jobs.find(j => j.aoi_name.toLowerCase() === country.toLowerCase() && j.state === 'COMPLETED');
+            const processingJob = jobs.find(j => j.aoi_name.toLowerCase() === country.toLowerCase() && ['PENDING', 'PROCESSING'].includes(j.state));
             
             let fileId, dates;
             if (latestJob) {
                 fileId = latestJob.fileId;
                 dates = `${latestJob.date_range_start}-${latestJob.date_range_end}`;
+            } else if (processingJob) {
+                heroData.innerHTML = `
+                    <div style="text-align: center; padding: 30px 20px;">
+                        <span class="processing-dots"><span></span><span></span><span></span></span>
+                        <div style="margin-top: 15px; font-weight: 500; color: var(--brand-secondary);">Analysis in Progress</div>
+                        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px;">A job is currently running for ${country}. Check the Jobs panel for status.</p>
+                    </div>`;
+                return;
             } else {
                 heroData.innerHTML = `<div class="empty-state-sm" style="padding:20px;text-align:center;">No completed analytics found for ${country}. Please run an export job first.</div>`;
                 return;
             }
 
-            const baseUrl = `https://storage.googleapis.com/unops/exports/unops/${fileId}/urban_extent_${countryFmt}_${dates}`;
+            const downloads = await API.getJobDownloads(fileId);
             
-            const parseCSV = (url) => new Promise((resolve, reject) => {
+            const getCsvUrl = (suffix) => {
+                const match = downloads.find(d => d.name.endsWith(suffix));
+                return match ? match.url : null;
+            };
+
+            const parseCSV = (suffix) => new Promise((resolve, reject) => {
+                const url = getCsvUrl(suffix);
+                if (!url) {
+                    // Fail silently or return empty array if not found, to allow graceful fallback
+                    return resolve([]);
+                }
                 const proxyUrl = `${API.baseUrl}/proxy-csv?url=${encodeURIComponent(url)}`;
                 Papa.parse(proxyUrl, {
                     download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
@@ -162,10 +204,10 @@ const SDG = {
             });
 
             const [annualData, areaData, spanData, statsData] = await Promise.all([
-                parseCSV(`${baseUrl}_LCRPGR_annual_10m.csv`),
-                parseCSV(`${baseUrl}_area10m_smoothed.csv`),
-                parseCSV(`${baseUrl}_LCRPGR_5yr_10m.csv`),
-                parseCSV(`${baseUrl}_prediction_stats.csv`)
+                parseCSV("_LCRPGR_annual_10m.csv"),
+                parseCSV("_area10m_smoothed.csv"),
+                parseCSV("_LCRPGR_5yr_10m.csv"),
+                parseCSV("_prediction_stats.csv")
             ]);
 
             this.heroData = heroData;
@@ -304,6 +346,15 @@ const SDG = {
                                 }
                             }
                         });
+                        
+                        if (typeof MapModule !== 'undefined' && MapModule.addLegend) {
+                            if (layersVisible) {
+                                MapModule.addLegend('Urban Extent Raster', 'Red areas represent classified built-up surfaces.', '#E85C0E');
+                            } else {
+                                MapModule.removeLegend();
+                            }
+                        }
+
                         if (layersVisible && typeof Toast !== 'undefined') {
                             Toast.show(`Loaded ${job.layers.length} high-res layers on map`, 'success');
                         }
@@ -311,7 +362,7 @@ const SDG = {
                 };
             }
             // Render downloads
-            this._renderJobDownloads(job.id, 'sdg-downloads-container');
+            this._renderJobDownloads(job.fileId || job.id, 'sdg-downloads-container');
         }
 
         this._renderCharts(validAnnual, validArea, validSpan, chartContainerId);

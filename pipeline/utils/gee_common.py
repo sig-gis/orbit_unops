@@ -138,6 +138,7 @@ def export_image_to_gcs(
         scale=scale,
         crs=crs,
         fileFormat="GeoTIFF",
+        formatOptions={'cloudOptimized': True}
     )
     if region is not None:
         kwargs["region"] = region
