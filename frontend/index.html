@@ -124,6 +124,12 @@
         <div class="view active" id="view-map">
             <div id="map" class="map-container"></div>
 
+            <!-- Minimized SDG Panel Restore Button -->
+            <button id="sdg-panel-restore" style="display:none; position: absolute; right: 20px; top: 20px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 0.75rem; cursor: pointer; color: var(--brand-secondary); align-items:center; gap:0.5rem;">
+                <i data-lucide="bar-chart-2" class="icon"></i>
+                <span style="font-weight:600; font-size:0.9rem;">SDG Panel</span>
+            </button>
+
             <!-- SDG Panel -->
             <div class="expansion-panel" id="sdg-panel" style="display:none; position: absolute; right: 20px; top: 20px; bottom: 20px; width: 400px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border-left: 4px solid var(--brand-secondary); padding: 1.5rem; overflow-y: auto; flex-direction: column;">
                 <div class="expansion-header">
@@ -131,7 +137,10 @@
                         <i data-lucide="building" class="icon" style="color:var(--brand-secondary)"></i>
                         <h3>SDG 11.3.1</h3>
                     </div>
-                    <button class="expansion-close" id="sdg-panel-close"><i data-lucide="x" class="icon"></i></button>
+                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                        <button class="expansion-close" id="sdg-panel-minimize" title="Minimize Panel"><i data-lucide="minimize-2" class="icon sm"></i></button>
+                        <button class="expansion-close" id="sdg-panel-close" title="Close Panel"><i data-lucide="x" class="icon"></i></button>
+                    </div>
                 </div>
                 <div class="expansion-subtitle">Ratio of land consumption to population growth</div>
                 
@@ -342,15 +351,15 @@
 
     <!-- App JS -->
     <script src="/config.js"></script>
-    <script src="/js/api.js?v=27July26"></script>
+    <script src="/js/api.js?v=28Aug26-11"></script>
     <script src="/js/auth.js?v=27July26"></script>
-    <script src="/js/map.js?v=27July26"></script>
+    <script src="/js/map.js?v=28Aug26-11"></script>
     <script src="/js/layers.js?v=27July26"></script>
-    <script src="/js/jobs.js?v=27July26-2"></script>
+    <script src="/js/jobs.js?v=28Aug26-11"></script>
     <script src="/js/stats.js?v=27July26"></script>
 
     <script src="/js/admin.js?v=27July26"></script>
-    <script src="/js/sdg.js?v=28Aug26-10"></script>
+    <script src="/js/sdg.js?v=28Aug26-11"></script>
     <script src="/js/app.js?v=27July26"></script>
 </body>
 </html>

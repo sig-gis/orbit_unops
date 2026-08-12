@@ -716,29 +716,9 @@ const Jobs = {
                 }
 
                 App.navigate('map');
-                // Show loading overlay
-                const loader = document.createElement('div');
-                loader.id = 'map-job-loader';
-                loader.innerHTML = `
-                    <div style="position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:white;">
-                        <span class="processing-dots" style="transform:scale(1.5);"><span></span><span></span><span></span></span>
-                        <div style="margin-top:20px; font-weight:bold; font-size:1.1rem; letter-spacing:1px;">Loading High-Resolution Raster Data...</div>
-                    </div>
-                `;
-                document.getElementById('view-map').appendChild(loader);
-                
-                const job = await API.getJob(jobId);
-                this._viewJobLayers(job);
-                if (typeof SDG !== 'undefined' && SDG.openPanel && SDG.loadJobDashboard) {
-                    SDG.openPanel();
-                    await SDG.loadJobDashboard(job, 'sdg-hero-data');
-                }
-                
-
-                // Remove loading overlay
-                if (document.getElementById('map-job-loader')) {
-                    document.getElementById('map-job-loader').remove();
-                }
+                App.navigate('map');
+                Toast.show('Loading raster layers...', 'info');
+                this._viewJobLayers(jobSummary);
             } else if (action === 'delete') {
                 if (confirm('Are you sure you want to delete this job record? This cannot be undone.')) {
                     await API.deleteJob(jobId);
