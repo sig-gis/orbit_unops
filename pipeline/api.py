@@ -331,6 +331,13 @@ def _normalize_job_record(job_id_hint: Optional[str], job: Dict[str, Any]) -> Di
     normalized["updated_at"] = normalized.get("updated_at") or normalized.get("completed_at") or normalized["created_at"]
     normalized["result"] = normalized.get("result")
     normalized["error"] = normalized.get("error")
+    
+    # Rewrite gs:// URLs to https:// to force TiTiler to use standard HTTP auth
+    if normalized.get("result") and isinstance(normalized["result"], dict) and normalized["result"].get("layers"):
+        for layer in normalized["result"]["layers"]:
+            if "tile_url" in layer and "gs://" in layer["tile_url"]:
+                layer["tile_url"] = layer["tile_url"].replace("gs://", "https://storage.googleapis.com/")
+
     return normalized
 
 
@@ -593,12 +600,6 @@ def list_exports():
                 normalized = _normalize_job_record(str(job_id), job)
                 _jobs[str(job_id)] = normalized
                 _rebuild_file_record_from_job(normalized)
-                
-                # Rewrite gs:// URLs to https:// to force TiTiler to use standard HTTP auth
-                if normalized.get("result") and normalized["result"].get("layers"):
-                    for layer in normalized["result"]["layers"]:
-                        if "tile_url" in layer and "gs://" in layer["tile_url"]:
-                            layer["tile_url"] = layer["tile_url"].replace("gs://", "https://storage.googleapis.com/")
                 
                 responses.append(ExportStatusResponse(**normalized))
             except Exception as exc:
