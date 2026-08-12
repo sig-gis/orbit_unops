@@ -262,6 +262,17 @@ const SDG = {
         }
 
         // Inject Job specific actions (Toggle Raster and Downloads)
+        let initialRasterBtnHtml = `<i data-lucide="eye" class="icon sm"></i> Show Raster`;
+        let layersVisible = false;
+        
+        if (job && job.layers && job.layers.length > 0 && typeof MapModule !== 'undefined' && MapModule.dataLayers) {
+            const firstLayerId = `job_${job.layers[0].id}`;
+            if (MapModule.dataLayers[firstLayerId] && MapModule.map && MapModule.map.hasLayer(MapModule.dataLayers[firstLayerId])) {
+                layersVisible = true;
+                initialRasterBtnHtml = `<i data-lucide="eye-off" class="icon sm"></i> Hide Raster`;
+            }
+        }
+
         let jobActionsHtml = '';
         if (job) {
             const datesStr = `${job.date_range_start}-${job.date_range_end}`;
@@ -270,7 +281,7 @@ const SDG = {
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <h4 style="margin:0; font-size: 0.85rem;">Job Actions (${datesStr})</h4>
                         <button id="sdg-toggle-raster-btn" class="action-btn" style="padding: 4px 8px;">
-                            <i data-lucide="eye" class="icon sm"></i> Show Raster
+                            ${initialRasterBtnHtml}
                         </button>
                     </div>
                     <div id="sdg-downloads-container" style="margin-top: 10px;"></div>
@@ -323,7 +334,6 @@ const SDG = {
         
         if (job && !chartContainerId) {
             // Bind toggle button ONLY if it's the floating panel
-            let layersVisible = false;
             const toggleBtn = document.getElementById('sdg-toggle-raster-btn');
             if (toggleBtn) {
                 toggleBtn.onclick = () => {

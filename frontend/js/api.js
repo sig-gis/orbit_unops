@@ -29,7 +29,7 @@ const API = {
 
     get(path)        { return this._fetch('GET', path); },
     post(path, body) { return this._fetch('POST', path, body); },
-    delete(path)     { return this._fetch('DELETE', path); },
+    del(path)        { return this._fetch('DELETE', path); },
 
     // ── Auth ──
     login(email, password) { return Promise.resolve({ access_token: "mock", user: Auth.user }); },
