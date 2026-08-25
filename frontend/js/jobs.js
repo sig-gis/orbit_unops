@@ -537,7 +537,11 @@ const Jobs = {
                 <td>${this._indicatorLabel(job.indicator_id)}</td>
                 <td>${this._stateBadge(job)}</td>
                 <td>${this._timeAgo(job.submitted_at)}</td>
-                <td>${job.completed_at ? this._timeAgo(job.completed_at) : '—'}</td>
+                <td>
+                    ${job.state === 'FAILED' && job.error ? 
+                        `<div style="color:var(--error); font-size: 0.75rem; max-width: 250px; white-space: normal; line-height: 1.2;" title="${job.error}">${job.error}</div>` 
+                      : (job.completed_at ? `Completed ${this._timeAgo(job.completed_at)}` : '—')}
+                </td>
                 <td class="job-actions">
                     ${job.state === 'COMPLETED' ? `<button class="action-btn view" data-action="view" data-job-id="${job.id}"><i data-lucide="eye" class="icon sm"></i> View</button>` : ''}
                     ${job.state === 'FAILED' ? `<button class="action-btn approve" data-action="retry" data-job-id="${job.id}"><i data-lucide="refresh-cw" class="icon sm"></i> Retry</button>` : ''}

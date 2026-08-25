@@ -130,6 +130,8 @@ const API = {
             indicator_id: sdkData.request ? sdkData.request.indicator_id : "11.3.1",
             state: stateMap[sdkData.status] || "PENDING",
             submitted_at: sdkData.created_at,
+            completed_at: sdkData.completed_at || null,
+            error: sdkData.error || null,
             aoi_name: sdkData.result?.country || sdkData.request?.country || "Custom AOI",
             aoi_id: sdkData.result?.country || sdkData.request?.country || "custom",
             date_range_start: sdkData.result?.year_start,

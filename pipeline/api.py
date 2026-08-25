@@ -10,6 +10,8 @@ from google.auth.transport.requests import Request as GoogleAuthRequest
 
 # Configure GDAL for Cloud Run using explicit Bearer tokens
 os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "EMPTY_DIR"
+# Prevent rasterio from loading wrong PROJ installation on Windows (e.g., PostGIS)
+os.environ.pop("PROJ_LIB", None)
 
 def _keep_gdal_token_fresh():
     while True:
@@ -524,6 +526,83 @@ def _run_export_job(job_id: str, request: ExportRequest) -> None:
         _set_job(job_id, {"status": "failed", "error": str(exc)})
 
 
+def _poll_ee_tasks_daemon():
+    """Background daemon to poll EE task statuses for all running jobs."""
+    # Configurable poll interval, default 15s
+    poll_interval = int(os.getenv("EE_POLL_INTERVAL_SECONDS", "15"))
+    while True:
+        try:
+            with _jobs_lock:
+                running_jobs = [job for job in _jobs.values() if job["status"] == "running"]
+            
+            if not running_jobs:
+                time.sleep(poll_interval)
+                continue
+                
+            import ee
+            # Extract all active EE task IDs across all running jobs
+            all_task_ids = []
+            for job in running_jobs:
+                task_ids = job.get("result", {}).get("task_ids", {})
+                all_task_ids.extend([tid for tid in task_ids.values() if tid])
+            
+            if all_task_ids:
+                # Use project from the first running job
+                project = running_jobs[0].get("result", {}).get("project")
+                initialize_ee(project=project)
+                
+                status_list = ee.data.getTaskStatus(all_task_ids)
+                status_by_id = {s.get("id"): s for s in status_list if s.get("id")}
+                
+                with _jobs_lock:
+                    for job in running_jobs:
+                        task_ids = job.get("result", {}).get("task_ids", {})
+                        if not task_ids:
+                            continue
+                            
+                        ee_status = {
+                            key: status_by_id.get(tid, {})
+                            for key, tid in task_ids.items()
+                            if tid
+                        }
+                        job["result"]["ee_task_status"] = ee_status
+
+                        all_completed = True
+                        any_failed = False
+                        error_texts = []
+                        for task_key, task_info in ee_status.items():
+                            if task_key == "classifier_export":
+                                continue
+                            state = task_info.get("state", "UNKNOWN")
+                            if state in ["READY", "RUNNING"]:
+                                all_completed = False
+                            elif state in ["FAILED", "CANCELLED"]:
+                                any_failed = True
+                                err_msg = task_info.get("error_message") or "Unknown EE Error"
+                                error_texts.append(f"{task_key}: {err_msg}")
+
+                        new_status = job["status"]
+                        if any_failed:
+                            new_status = "failed"
+                        elif all_completed and len(ee_status) > 0:
+                            new_status = "completed"
+
+                        if new_status != job["status"]:
+                            _jobs[job["job_id"]]["status"] = new_status
+                            if new_status == "completed":
+                                _jobs[job["job_id"]]["completed_at"] = datetime.utcnow().isoformat()
+                            if any_failed:
+                                _jobs[job["job_id"]]["error"] = " | ".join(error_texts)
+                            _jobs[job["job_id"]]["result"] = job["result"]
+                            _save_jobs()
+        except Exception as e:
+            print(f"Warning: EE polling daemon error: {e}")
+            
+        time.sleep(poll_interval)
+
+threading.Thread(target=_poll_ee_tasks_daemon, daemon=True).start()
+
+
 @app.get("/health")
 def health() -> Dict[str, str]:
     return {"status": "ok"}
@@ -643,6 +722,7 @@ def get_export(job_id: str, refresh_task_status: bool = True) -> ExportStatusRes
 
             all_completed = True
             any_failed = False
+            error_texts = []
             for task_key, task_info in ee_status.items():
                 if task_key == "classifier_export":
                     continue
@@ -651,14 +731,20 @@ def get_export(job_id: str, refresh_task_status: bool = True) -> ExportStatusRes
                     all_completed = False
                 elif state in ["FAILED", "CANCELLED"]:
                     any_failed = True
+                    err_msg = task_info.get("error_message") or "Unknown EE Error"
+                    error_texts.append(f"{task_key}: {err_msg}")
 
             new_status = job["status"]
+            update_data = {"status": new_status, "result": merged_result}
+            
             if any_failed:
-                new_status = "failed"
+                update_data["status"] = "failed"
+                update_data["error"] = " | ".join(error_texts)
             elif all_completed and len(ee_status) > 0:
-                new_status = "completed"
+                update_data["status"] = "completed"
+                update_data["completed_at"] = datetime.utcnow().isoformat()
 
-            _set_job(job_id, {"status": new_status, "result": merged_result})
+            _set_job(job_id, update_data)
         except Exception:
             # Keep API resilient even if EE status refresh fails.
             pass

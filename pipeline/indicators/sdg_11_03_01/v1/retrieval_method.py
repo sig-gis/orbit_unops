@@ -8,6 +8,7 @@ to Google Cloud Storage via Earth Engine batch tasks.
 
 import json
 import os
+import uuid
 from typing import Any, Dict, Optional
 
 import ee
@@ -21,6 +22,7 @@ if __package__:
         export_table_to_gcs,
         export_vector_to_gcs,
         initialize_ee,
+        get_missing_years,
     )
     from ....utils.ae_specific import embeddings_by_year, generate_stratified_sample
 else:
@@ -31,6 +33,7 @@ else:
         export_table_to_gcs,
         export_vector_to_gcs,
         initialize_ee,
+        get_missing_years,
     )
     from utils.ae_specific import embeddings_by_year, generate_stratified_sample
 
@@ -103,6 +106,16 @@ def run_11_03_01(
         boundary_geometry = boundary.geometry()
         region_label = country.lower().replace(" ", "_").replace("-", "_")
 
+    # Fast check data availability for requested years (Fail Fast)
+    required_years = [map_year] + list(range(year_start, year_end + 1))
+    missing_years = get_missing_years(embeddings, required_years, boundary_geometry)
+    if missing_years:
+        missing_str = ", ".join(map(str, sorted(missing_years)))
+        raise ValueError(
+            f"Satellite embeddings are unavailable for the following requested years: {missing_str}. "
+            "Please run the task again with available years."
+        )
+
     # =====================================================================
     # Cell 3 -- Train RF on MAP_YEAR GHS labels, then validate
     # =====================================================================
@@ -148,7 +161,8 @@ def run_11_03_01(
                 inputProperties=input_properties,
             )
         )
-        assetId = f"projects/{project}/assets/{final_export_name}_classifier" if project else f"{final_export_name}_classifier"
+        unique_suffix = uuid.uuid4().hex[:6]
+        assetId = f"projects/{project}/assets/{final_export_name}_classifier_{unique_suffix}" if project else f"{final_export_name}_classifier_{unique_suffix}"
         classifier_export_task = ee.batch.Export.classifier.toAsset(
             classifier=classifier, 
             description=f"{final_export_name}_classifier_export", 

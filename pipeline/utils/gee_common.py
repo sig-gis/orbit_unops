@@ -138,7 +138,8 @@ def export_image_to_gcs(
         scale=scale,
         crs=crs,
         fileFormat="GeoTIFF",
-        formatOptions={'cloudOptimized': True}
+        formatOptions={'cloudOptimized': True},
+        maxPixels=1e13
     )
     if region is not None:
         kwargs["region"] = region
@@ -211,3 +212,36 @@ def aggregate_regional_stats(
     # Return the first value from the dictionary (works for single-band images).
     key = image.bandNames().get(0)
     return ee.Number(result_dict.get(key))
+
+
+def get_missing_years(collection: "ee.ImageCollection", years: list[int], boundary: "ee.Geometry") -> list[int]:
+    """Check an Earth Engine ImageCollection and return a list of years that have no imagery.
+
+    Args:
+        collection: The Earth Engine ImageCollection to check (assumes annual/continuous data).
+        years: A list of years to verify.
+        boundary: The geometry to filter bounds against.
+
+    Returns:
+        A list of integers representing the years that have no matching images.
+    """
+    required_years = list(set(years))
+    if not required_years:
+        return []
+
+    def check_year(y):
+        y_num = ee.Number(y)
+        d_start = ee.Date.fromYMD(y_num, 1, 1)
+        d_end = d_start.advance(1, "year")
+        count = collection.filterDate(d_start, d_end).filterBounds(boundary).size()
+        return ee.Feature(None, {"year": y_num, "count": count})
+
+    counts_fc = ee.FeatureCollection(ee.List(required_years).map(check_year))
+    
+    try:
+        counts_list = counts_fc.reduceColumns(ee.Reducer.toList(2), ["year", "count"]).get("list").getInfo()
+        return [int(item[0]) for item in counts_list if item[1] == 0]
+    except Exception as exc:
+        print(f"Warning: Failed to validate missing years: {exc}")
+        # If the check fails for EE reasons, we return empty to avoid blocking the pipeline erroneously
+        return []
