@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Space-for-time results</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root { color-scheme: light; font: 15px/1.45 Arial, sans-serif; }
+    body { margin: 0; color: #202520; background: #fff; }
+    main { max-width: 1050px; margin: 38px auto; padding: 0 22px; }
+    h1 { margin: 0; font-size: 1.7rem; font-weight: 600; }
+    a { color: #236b45; }
+    #status { margin: 5px 0 18px; color: #667068; font-size: .88rem; }
+    #summary { margin: 0 0 16px; padding: 12px 0; border-block: 1px solid #dfe3df; font-size: 1rem; }
+    table { width: 100%; margin: 0 0 28px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid #e5e8e5; }
+    th:first-child, td:first-child { padding-left: 0; text-align: left; }
+    th { color: #667068; font-size: .78rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+    #map { height: 520px; margin: 0 0 30px; background: #f3f4f2; border: 1px solid #dfe3df; }
+    .map-legend { padding: 7px 9px; background: #fff; box-shadow: 0 1px 5px #0003; font-size: 12px; }
+    .map-legend div { margin: 3px 0; }
+    .map-legend i { display: inline-block; width: 9px; height: 9px; margin-right: 6px; border-radius: 50%; }
+    .plots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px 36px; }
+    figure { margin: 0; }
+    canvas { width: 100%; height: 300px; display: block; }
+    figcaption { font-weight: 600; margin-bottom: 4px; }
+    .legend { font-size: .78rem; color: #667068; }
+    .assets { margin-top: 30px; padding-top: 16px; border-top: 1px solid #dfe3df; }
+    .assets h2 { margin: 0 0 8px; font-size: .95rem; }
+    .assets div { margin: 4px 0; overflow-wrap: anywhere; font: .8rem/1.45 ui-monospace, monospace; }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 5px 0 12px; }
+    .dot:first-child { margin-left: 0; }
+    @media (max-width: 720px) { .plots { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Space-for-time evaluation</h1>
+  <div id="status">Loading successful test run…</div>
+  <div id="summary"></div>
+  <table id="metrics" aria-label="Held-out classification metrics"></table>
+  <div id="map" aria-label="Point classification map"></div>
+  <section class="plots">
+    <figure><figcaption>Points per training block</figcaption><canvas id="points"></canvas></figure>
+    <figure><figcaption>Fraction of training blocks</figcaption><canvas id="blocks"></canvas></figure>
+    <figure><figcaption>ROC on held-out blocks</figcaption><canvas id="roc"></canvas></figure>
+  </section>
+  <section class="assets"><h2>Earth Engine outputs</h2><div id="assets"></div></section>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const DEFAULT_RESULTS = "https://storage.googleapis.com/download/storage/v1/b/ee-seismosmsr-gis-space-for-time-results/o/peatlands-service-viewer-20260826b%2Fresults.json?alt=media";
+const params = new URLSearchParams(location.search);
+const colocated = location.pathname.endsWith("/viewer.html") ? "./results.json" : null;
+const resultsUrl = params.get("results") || colocated || DEFAULT_RESULTS;
+
+function setup(canvas) {
+  const scale = devicePixelRatio || 1;
+  const box = canvas.getBoundingClientRect();
+  canvas.width = Math.round(box.width * scale);
+  canvas.height = Math.round(box.height * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+  return {ctx, width: box.width, height: box.height};
+}
+
+function frame(canvas, xLabel, yLabel, xTicks, yTicks) {
+  const {ctx, width, height} = setup(canvas);
+  const p = {l: 48, r: 15, t: 12, b: 38};
+  const w = width - p.l - p.r, h = height - p.t - p.b;
+  ctx.strokeStyle = "#cfd6d0"; ctx.fillStyle = "#647067"; ctx.font = "11px system-ui";
+  ctx.beginPath(); ctx.moveTo(p.l, p.t); ctx.lineTo(p.l, p.t+h); ctx.lineTo(p.l+w, p.t+h); ctx.stroke();
+  yTicks.forEach(([v, label]) => { const y=p.t+h-v*h; ctx.fillText(label, 4, y+4); ctx.strokeStyle="#edf0ed"; ctx.beginPath(); ctx.moveTo(p.l,y); ctx.lineTo(p.l+w,y); ctx.stroke(); });
+  xTicks.forEach(([v, label]) => { const x=p.l+v*w; ctx.fillText(label, x-8, height-20); });
+  ctx.fillText(xLabel, p.l+w/2-30, height-3); ctx.save(); ctx.translate(12,p.t+h/2+25); ctx.rotate(-Math.PI/2); ctx.fillText(yLabel,0,0); ctx.restore();
+  return {ctx,p,w,h};
+}
+
+function lineChart(canvas, rows, xKey, xLabels) {
+  const aucs = rows.map(r => r.auc);
+  const min = Math.floor((Math.min(...aucs)-.01)*100)/100;
+  const max = Math.ceil((Math.max(...aucs)+.01)*100)/100;
+  const f = frame(canvas, xKey === "block_fraction" ? "Block fraction" : "Points / block", "AUC",
+    rows.map((r,i)=>[i/(rows.length-1), xLabels(r)]), [[0,min.toFixed(2)],[.5,((min+max)/2).toFixed(2)],[1,max.toFixed(2)]]);
+  f.ctx.strokeStyle="#297a4a"; f.ctx.fillStyle="#297a4a"; f.ctx.lineWidth=2; f.ctx.beginPath();
+  rows.forEach((r,i)=>{ const x=f.p.l+(i/(rows.length-1))*f.w; const y=f.p.t+f.h-(r.auc-min)/(max-min)*f.h; i ? f.ctx.lineTo(x,y) : f.ctx.moveTo(x,y); }); f.ctx.stroke();
+  rows.forEach((r,i)=>{ const x=f.p.l+(i/(rows.length-1))*f.w; const y=f.p.t+f.h-(r.auc-min)/(max-min)*f.h; f.ctx.beginPath(); f.ctx.arc(x,y,3.5,0,Math.PI*2); f.ctx.fill(); });
+}
+
+function pointMap(points) {
+  const map=L.map("map",{preferCanvas:true,attributionControl:false});
+  const renderer=L.canvas({padding:.2});
+  const colors={train:"#297a4a",holdout:"#d85b43",true_positive:"#16784a",true_negative:"#4477aa",false_positive:"#e29424",false_negative:"#c43d3d",sklearn_positive:"#7b4ab5",earth_engine_positive:"#d06a2d"};
+  const makeLayer=(field,filter=()=>true)=>L.layerGroup(points.filter(filter).map(p=>{
+    const marker=L.circleMarker([p.lat,p.lon],{renderer,radius:2.5,stroke:false,fillOpacity:.72,fillColor:colors[p[field]]});
+    marker.bindPopup(`<strong>${p[field].replaceAll("_"," ")}</strong><br>Truth: ${p.truth}<br>sklearn: ${p.sklearn_prediction} (${p.sklearn_probability.toFixed(3)})<br>Earth Engine: ${p.earth_engine_prediction} (${p.earth_engine_probability.toFixed(3)})<br>${p.split}`);
+    return marker;
+  }));
+  const split=makeLayer("split").addTo(map);
+  const sklearn=makeLayer("sklearn_outcome");
+  const earthEngine=makeLayer("earth_engine_outcome");
+  const disagreement=makeLayer("disagreement",p=>p.models_disagree);
+  const background=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"});
+  const views={"Training / holdout":split,"sklearn outcomes":sklearn,"Earth Engine outcomes":earthEngine,"Model disagreements":disagreement};
+  L.control.layers(views,{"Background map":background},{collapsed:false}).addTo(map);
+  map.fitBounds(L.latLngBounds(points.map(p=>[p.lat,p.lon])).pad(.04));
+  const legend=L.control({position:"bottomright"});
+  const legends={
+    "Training / holdout":[["train","Training"],["holdout","Holdout"]],
+    "sklearn outcomes":[["true_positive","True positive"],["true_negative","True negative"],["false_positive","False positive"],["false_negative","False negative"]],
+    "Earth Engine outcomes":[["true_positive","True positive"],["true_negative","True negative"],["false_positive","False positive"],["false_negative","False negative"]],
+    "Model disagreements":[["sklearn_positive","sklearn positive"],["earth_engine_positive","Earth Engine positive"]]
+  };
+  legend.onAdd=()=>{const div=L.DomUtil.create("div","map-legend");legend._div=div;return div;};legend.addTo(map);
+  const showLegend=name=>{legend._div.innerHTML=legends[name].map(([key,label])=>`<div><i style="background:${colors[key]}"></i>${label}</div>`).join("");};
+  showLegend("Training / holdout");map.on("baselayerchange",e=>showLegend(e.name));
+}
+
+function rocPlot(canvas, sk, ee) {
+  const f=frame(canvas,"False positive rate","True positive rate",[[0,"0"],[.5,".5"],[1,"1"]],[[0,"0"],[.5,".5"],[1,"1"]]);
+  const draw=(roc,color)=>{ f.ctx.strokeStyle=color; f.ctx.lineWidth=2; f.ctx.beginPath(); roc.false_positive_rate.forEach((x,i)=>{ const px=f.p.l+x*f.w, py=f.p.t+f.h-roc.true_positive_rate[i]*f.h; i?f.ctx.lineTo(px,py):f.ctx.moveTo(px,py); }); f.ctx.stroke(); };
+  f.ctx.strokeStyle="#aeb7b0"; f.ctx.setLineDash([5,5]); f.ctx.beginPath(); f.ctx.moveTo(f.p.l,f.p.t+f.h); f.ctx.lineTo(f.p.l+f.w,f.p.t); f.ctx.stroke(); f.ctx.setLineDash([]);
+  draw(sk.roc,"#297a4a"); draw(ee.roc,"#5b67b2");
+  f.ctx.fillStyle="#297a4a"; f.ctx.fillText(`sklearn ${sk.auc.toFixed(3)}`,f.p.l+8,f.p.t+14); f.ctx.fillStyle="#5b67b2"; f.ctx.fillText(`Earth Engine ${ee.auc.toFixed(3)}`,f.p.l+8,f.p.t+29);
+}
+
+fetch(resultsUrl).then(r=>{if(!r.ok) throw Error(`${r.status} ${r.statusText}`); return r.json();}).then(d=>{
+  document.getElementById("status").innerHTML=`Run <strong>${d.run.name}</strong> · <a href="${resultsUrl}">source JSON</a>`;
+  document.getElementById("summary").innerHTML=`Selected <strong>${d.selection.points_per_block} points per block</strong> and <strong>${d.selection.recommended_minimum_block_fraction*100}% of training blocks</strong>.`;
+  const metrics=model=>{const c=model.confusion_matrix, precision=c.tp/(c.tp+c.fp), recall=c.tp/(c.tp+c.fn);return [model.auc,model.accuracy,precision,recall,2*precision*recall/(precision+recall)];};
+  const row=(name,model)=>`<tr><td>${name}</td>${metrics(model).map(v=>`<td>${v.toFixed(3)}</td>`).join("")}</tr>`;
+  document.getElementById("metrics").innerHTML=`<thead><tr><th>Model</th><th>AUC</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead><tbody>${row("sklearn",d.sklearn)}${row("Earth Engine",d.earth_engine)}</tbody>`;
+  document.getElementById("assets").innerHTML=Object.entries(d.assets).map(([name,value])=>`<div><strong>${name}:</strong> ${value}</div>`).join("");
+  pointMap(d.split.points);
+  lineChart(document.getElementById("points"),d.experiments.points_per_block,"points_per_block",r=>r.points_per_block);
+  lineChart(document.getElementById("blocks"),d.experiments.block_fraction,"block_fraction",r=>`${Math.round(r.block_fraction*100)}%`);
+  rocPlot(document.getElementById("roc"),d.sklearn,d.earth_engine);
+}).catch(e=>{document.getElementById("status").textContent=`Could not load results: ${e.message}`;});
+</script>
+</body>
+</html>
