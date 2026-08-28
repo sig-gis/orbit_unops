@@ -1,8 +1,10 @@
 import io
+import base64
 import json
 import os
 import re
 import time
+from html import escape
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -10,10 +12,15 @@ import ee
 import numpy as np
 import pandas as pd
 import requests
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 from google.cloud import storage
-from google.oauth2.credentials import Credentials
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score, roc_curve
+
+from app.gcs import public_https_url
 
 
 EMBEDDINGS = "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL"
@@ -82,17 +89,247 @@ def _json_default(value):
     raise TypeError(f"Not JSON serializable: {type(value).__name__}")
 
 
-def run_tasking(config, access_token):
+def _fig_to_base64(fig):
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png", dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    buffer.seek(0)
+    return base64.b64encode(buffer.read()).decode("utf-8")
+
+
+def _plot_split_map(report):
+    points = pd.DataFrame(report.get("split", {}).get("points", []))
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    if not points.empty and {"lon", "lat", "split"}.issubset(points.columns):
+        train = points[points["split"] == "train"]
+        holdout = points[points["split"] == "holdout"]
+        ax.scatter(
+            train["lon"],
+            train["lat"],
+            s=8,
+            alpha=0.35,
+            label=f"Train: {train.get('block_id', pd.Series(dtype=object)).nunique()} blocks",
+        )
+        ax.scatter(
+            holdout["lon"],
+            holdout["lat"],
+            s=8,
+            alpha=0.55,
+            label=f"Holdout: {holdout.get('block_id', pd.Series(dtype=object)).nunique()} blocks",
+        )
+        ax.legend(frameon=False)
+    else:
+        ax.text(0.5, 0.5, "No split point data available", ha="center", va="center", transform=ax.transAxes)
+    ax.set(xlabel="Longitude", ylabel="Latitude", title="Training and held-out observations")
+    ax.grid(alpha=0.25)
+    return _fig_to_base64(fig)
+
+
+def _plot_experiments(report):
+    point_frame = pd.DataFrame(report.get("experiments", {}).get("points_per_block", []))
+    block_frame = pd.DataFrame(report.get("experiments", {}).get("block_fraction", []))
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    if not point_frame.empty:
+        point_labels = point_frame["points_per_block"].astype(str)
+        axes[0].plot(point_labels, point_frame["auc"], "o-", label="AUC")
+        axes[0].plot(point_labels, point_frame["accuracy"], "o-", label="Accuracy")
+    else:
+        axes[0].text(0.5, 0.5, "No point-cap data", ha="center", va="center", transform=axes[0].transAxes)
+
+    if not block_frame.empty:
+        axes[1].plot(block_frame["block_fraction"] * 100, block_frame["auc"], "o-", label="AUC")
+        axes[1].plot(block_frame["block_fraction"] * 100, block_frame["accuracy"], "o-", label="Accuracy")
+    else:
+        axes[1].text(0.5, 0.5, "No block-fraction data", ha="center", va="center", transform=axes[1].transAxes)
+
+    axes[0].set(title="Points within each training block", xlabel="Points per block")
+    axes[1].set(title="Training-block coverage", xlabel="Training blocks used (%)")
+    for ax in axes:
+        ax.set_ylabel("Held-out score")
+        ax.set_ylim(0, 1)
+        ax.grid(alpha=0.25)
+        ax.legend(frameon=False)
+    plt.tight_layout()
+    return _fig_to_base64(fig)
+
+
+def _plot_roc(report):
+    sklearn = report.get("sklearn", {})
+    earth_engine = report.get("earth_engine", {})
+    sk_roc = sklearn.get("roc", {})
+    gee_roc = earth_engine.get("roc", {})
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.plot([0, 1], [0, 1], "--", color="0.7")
+    if sk_roc.get("false_positive_rate") and sk_roc.get("true_positive_rate"):
+        ax.plot(
+            sk_roc["false_positive_rate"],
+            sk_roc["true_positive_rate"],
+            label=f"sklearn AUC {float(sklearn.get('auc', 0)):.3f}",
+        )
+    if gee_roc.get("false_positive_rate") and gee_roc.get("true_positive_rate"):
+        ax.plot(
+            gee_roc["false_positive_rate"],
+            gee_roc["true_positive_rate"],
+            label=f"Earth Engine AUC {float(earth_engine.get('auc', 0)):.3f}",
+        )
+    ax.set(
+        xlabel="False positive rate",
+        ylabel="True positive rate",
+        title="ROC on held-out blocks",
+        xlim=(0, 1),
+        ylim=(0, 1),
+    )
+    ax.grid(alpha=0.25)
+    ax.legend(frameon=False)
+    return _fig_to_base64(fig)
+
+
+def _viewer_html(report, results_url):
+    """Build a static HTML report with matplotlib plots for browser viewing from GCS."""
+    selection = report.get("selection", {})
+    input_summary = report.get("input", {})
+    sklearn = report.get("sklearn", {})
+    earth_engine = report.get("earth_engine", {})
+    assets = report.get("assets", {})
+    run = report.get("run", {})
+    plots = {
+        "split_map": _plot_split_map(report),
+        "experiments": _plot_experiments(report),
+        "roc": _plot_roc(report),
+    }
+
+    def metric_row(label, data):
+        return (
+            "<tr>"
+            f"<th>{escape(label)}</th>"
+            f"<td>{escape(str(data.get('auc', 'n/a')))}</td>"
+            f"<td>{escape(str(data.get('accuracy', 'n/a')))}</td>"
+            f"<td>{escape(str(data.get('threshold', 'n/a')))}</td>"
+            "</tr>"
+        )
+
+    def confusion_matrix_table(label, matrix):
+        matrix = matrix or {}
+        return f"""
+        <div class=\"matrix\">
+          <h3>{escape(label)}</h3>
+          <table>
+            <tr><th></th><th>Predicted 0</th><th>Predicted 1</th></tr>
+            <tr><th>Actual 0</th><td>{escape(str(matrix.get('tn', 'n/a')))}</td><td>{escape(str(matrix.get('fp', 'n/a')))}</td></tr>
+            <tr><th>Actual 1</th><td>{escape(str(matrix.get('fn', 'n/a')))}</td><td>{escape(str(matrix.get('tp', 'n/a')))}</td></tr>
+          </table>
+        </div>"""
+
+    asset_items = "".join(
+        f"<li><strong>{escape(str(key))}:</strong> <code>{escape(str(value))}</code></li>"
+        for key, value in assets.items()
+    )
+    report_json = escape(json.dumps(report, default=_json_default, indent=2))
+    return f"""<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\">
+  <title>Space-for-time tasking report - {escape(report['run']['name'])}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 2rem; line-height: 1.45; color: #1f2937; background: #f8fafc; }}
+    h1, h2, h3 {{ color: #111827; }}
+    code, pre {{ background: #f3f4f6; padding: 0.15rem 0.3rem; border-radius: 4px; }}
+    pre {{ padding: 1rem; overflow-x: auto; }}
+    table {{ border-collapse: collapse; margin: 1rem 0; }}
+    th, td {{ border: 1px solid #d1d5db; padding: 0.5rem 0.75rem; text-align: left; }}
+    th {{ background: #f9fafb; }}
+    .card {{ background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin: 1rem 0; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; }}
+    .plot {{ max-width: 100%; height: auto; display: block; margin: 0 auto; }}
+    .matrix-grid {{ display: flex; flex-wrap: wrap; gap: 2rem; }}
+    .muted {{ color: #6b7280; }}
+  </style>
+</head>
+<body>
+  <h1>Space-for-time tasking report</h1>
+  <p><strong>Run:</strong> {escape(report['run']['name'])}</p>
+  <p><strong>Raw JSON:</strong> <a href=\"{escape(results_url)}\">results.json</a></p>
+
+  <div class=\"card\">
+    <h2>Recommendation</h2>
+    <p><strong>Points per block:</strong> {escape(str(selection.get('points_per_block', 'n/a')))}</p>
+    <p><strong>Recommended minimum block fraction:</strong> {escape(str(selection.get('recommended_minimum_block_fraction', 'n/a')))}</p>
+    <p><strong>Production points:</strong> {escape(str(selection.get('production_points', 'n/a')))}</p>
+    <p><strong>Production blocks:</strong> {escape(str(selection.get('production_blocks', 'n/a')))}</p>
+  </div>
+
+  <div class=\"card\">
+    <h2>Spatial blocking</h2>
+    <p><strong>Block coordinate source:</strong> {escape(str(run.get('block_coordinate_source', 'n/a')))}</p>
+    <p><strong>Block CRS:</strong> {escape(str(run.get('block_crs', 'n/a')))}</p>
+    <p><strong>Block size:</strong> {escape(str(run.get('block_size_m', 'n/a')))} meters</p>
+  </div>
+
+  <div class=\"card\">
+    <h2>Input summary</h2>
+    <p><strong>Observations:</strong> {escape(str(input_summary.get('n_observations', 'n/a')))}</p>
+    <p><strong>Positive observations:</strong> {escape(str(input_summary.get('n_positive', 'n/a')))}</p>
+    <p><strong>Positive fraction:</strong> {escape(str(input_summary.get('positive_fraction', 'n/a')))}</p>
+    <p><strong>Spatial blocks:</strong> {escape(str(input_summary.get('n_blocks', 'n/a')))}</p>
+  </div>
+
+  <div class=\"card\">
+    <h2>Training and held-out observations</h2>
+    <p class=\"muted\">Matplotlib scatter plot equivalent to the original notebook spatial holdout map.</p>
+    <img class=\"plot\" alt=\"Training and held-out observations\" src=\"data:image/png;base64,{plots['split_map']}\">
+  </div>
+
+  <div class=\"card\">
+    <h2>Tasking experiments</h2>
+    <img class=\"plot\" alt=\"Tasking experiment plots\" src=\"data:image/png;base64,{plots['experiments']}\">
+  </div>
+
+  <div class=\"card\">
+    <h2>ROC on held-out blocks</h2>
+    <img class=\"plot\" alt=\"ROC curve\" src=\"data:image/png;base64,{plots['roc']}\">
+  </div>
+
+  <div class=\"card\">
+    <h2>Model metrics</h2>
+    <table>
+      <tr><th>Model</th><th>AUC</th><th>Accuracy</th><th>Threshold</th></tr>
+      {metric_row('sklearn', sklearn)}
+      {metric_row('earth_engine', earth_engine)}
+    </table>
+  </div>
+
+  <div class=\"card\">
+    <h2>Confusion matrices</h2>
+    <div class=\"matrix-grid\">
+      {confusion_matrix_table('sklearn', sklearn.get('confusion_matrix'))}
+      {confusion_matrix_table('earth_engine', earth_engine.get('confusion_matrix'))}
+    </div>
+  </div>
+
+  <div class=\"card\">
+    <h2>Earth Engine assets</h2>
+    <ul>{asset_items}</ul>
+  </div>
+
+  <details>
+    <summary>Full report JSON</summary>
+    <pre>{report_json}</pre>
+  </details>
+</body>
+</html>"""
+
+def run_tasking(config):
     """Run the same reference-model workflow as space_for_time_tasking.ipynb."""
     run_name = _run_name(config["run_name"])
     project = config["cloud_project"]
-    credentials = Credentials(token=access_token)
-    ee.Initialize(credentials=credentials, project=project)
+    ee.Initialize(project=project)
 
     lon = config["longitude_column"]
     lat = config["latitude_column"]
-    block_x = config["block_x_column"]
-    block_y = config["block_y_column"]
+    block_x = config.get("block_x_column")
+    block_y = config.get("block_y_column")
+    block_crs = config.get("block_crs") or "EPSG:6933"
     target = config["target_column"]
     threshold = config["target_threshold"]
     reference_year = config["reference_year"]
@@ -108,49 +345,111 @@ def run_tasking(config, access_token):
     bands = [f"A{i:02d}" for i in range(n_bands)]
     variables_per_split = int(np.sqrt(n_bands))
 
-    point_asset = f"projects/{project}/assets/{run_name}_points"
-    sample_asset = f"projects/{project}/assets/{run_name}_reference_samples"
-    model_asset = f"projects/{project}/assets/{run_name}_random_forest"
-    _assert_assets_absent([point_asset, sample_asset, model_asset])
-
-    observations = _download_csv(config["csv_url"])
-    required = [lon, lat, block_x, block_y, target]
-    missing = [column for column in required if column not in observations]
-    if missing:
-        raise ValueError(f"Missing columns: {missing}")
-    observations = observations.dropna(subset=required).reset_index(drop=True)
-    observations["_row"] = np.arange(len(observations))
-    observations["y"] = (observations[target] >= threshold).astype(int)
-    observations["block_id"] = (
-        (observations[block_x] // block_size).astype(int).astype(str)
-        + "_"
-        + (observations[block_y] // block_size).astype(int).astype(str)
-    )
-
-    features = [
-        ee.Feature(
-            ee.Geometry.Point([float(x), float(y)]),
-            {
-                "_row": int(row),
-                "lon": float(x),
-                "lat": float(y),
-                "y": int(label),
-                "block_id": str(block),
-            },
+    if bool(block_x) != bool(block_y):
+        raise ValueError(
+            "Provide both block_x_column and block_y_column, or omit both to derive spatial blocks from geometry."
         )
-        for row, x, y, label, block in observations[
-            ["_row", lon, lat, "y", "block_id"]
-        ].itertuples(index=False, name=None)
-    ]
-    task = ee.batch.Export.table.toAsset(
-        collection=ee.FeatureCollection(features),
-        description=f"{run_name}_points",
-        assetId=point_asset,
-    )
-    task.start()
-    _wait(task)
-    _wait_for_asset(point_asset)
-    points = ee.FeatureCollection(point_asset)
+    use_existing_block_columns = bool(block_x and block_y)
+
+    asset_root = config.get("asset_root") or f"projects/{project}/assets"
+    asset_root = asset_root.rstrip("/")
+    point_asset = config.get("point_asset_id") or f"{asset_root}/{run_name}_points"
+    sample_asset = config.get("sample_asset_id") or f"{asset_root}/{run_name}_reference_samples"
+    model_asset = config.get("model_asset_id") or f"{asset_root}/{run_name}_random_forest"
+
+    input_asset_id = config.get("input_asset_id")
+    csv_url = config.get("csv_url")
+    if bool(input_asset_id) == bool(csv_url):
+        raise ValueError("Provide exactly one of input_asset_id or csv_url")
+
+    assets_to_check = [sample_asset, model_asset]
+    if not input_asset_id:
+        assets_to_check.append(point_asset)
+    _assert_assets_absent(assets_to_check)
+
+    def feature_block_xy(feature):
+        if use_existing_block_columns:
+            return ee.Dictionary(
+                {
+                    "x": ee.Number(feature.get(block_x)),
+                    "y": ee.Number(feature.get(block_y)),
+                }
+            )
+
+        projected = feature.geometry().centroid(1).transform(block_crs, 1)
+        coords = projected.coordinates()
+        return ee.Dictionary(
+            {
+                "x": ee.Number(coords.get(0)),
+                "y": ee.Number(coords.get(1)),
+            }
+        )
+
+    def normalize_feature(feature):
+        row_id = ee.Algorithms.If(feature.get("_row"), feature.get("_row"), feature.id())
+        xy = feature_block_xy(feature)
+        x = ee.Number(xy.get("x"))
+        y_coord = ee.Number(xy.get("y"))
+        block_id = x.divide(block_size).floor().format().cat("_").cat(
+            y_coord.divide(block_size).floor().format()
+        )
+        return feature.set(
+            {
+                "_row": row_id,
+                "lon": ee.Number(feature.get(lon)),
+                "lat": ee.Number(feature.get(lat)),
+                "y": ee.Number(feature.get(target)).gte(threshold).int(),
+                "block_x_m": x,
+                "block_y_m": y_coord,
+                "block_id": block_id,
+            }
+        )
+
+    if input_asset_id:
+        required = [lon, lat, target]
+        if use_existing_block_columns:
+            required.extend([block_x, block_y])
+        source_points = ee.FeatureCollection(input_asset_id).filter(ee.Filter.notNull(required))
+
+        points = source_points.map(normalize_feature)
+        point_asset = input_asset_id
+    else:
+        observations = _download_csv(csv_url)
+        required = [lon, lat, target]
+        if use_existing_block_columns:
+            required.extend([block_x, block_y])
+        missing = [column for column in required if column not in observations]
+        if missing:
+            raise ValueError(f"Missing columns: {missing}")
+        observations = observations.dropna(subset=required).reset_index(drop=True)
+        observations["_row"] = np.arange(len(observations))
+
+        features = []
+        for record in observations.to_dict("records"):
+            properties = {
+                "_row": int(record["_row"]),
+                lon: float(record[lon]),
+                lat: float(record[lat]),
+                target: float(record[target]),
+            }
+            if use_existing_block_columns:
+                properties[block_x] = float(record[block_x])
+                properties[block_y] = float(record[block_y])
+            features.append(
+                ee.Feature(
+                    ee.Geometry.Point([float(record[lon]), float(record[lat])]),
+                    properties,
+                )
+            )
+        task = ee.batch.Export.table.toAsset(
+            collection=ee.FeatureCollection(features).map(normalize_feature),
+            description=f"{run_name}_points",
+            assetId=point_asset,
+        )
+        task.start()
+        _wait(task)
+        _wait_for_asset(point_asset)
+        points = ee.FeatureCollection(point_asset)
 
     def embedding(year):
         return (
@@ -185,7 +484,6 @@ def run_tasking(config, access_token):
         }
     )
     reference = reference.dropna(subset=bands).reset_index(drop=True)
-    reference["_row"] = reference["_row"].astype(int)
     reference["y"] = reference["y"].astype(int)
 
     rng = np.random.default_rng(seed)
@@ -255,7 +553,7 @@ def run_tasking(config, access_token):
         sklearn_thresholds[np.argmax(sklearn_tpr - sklearn_fpr)]
     )
 
-    selected_train_ids = capped_train["_row"].astype(int).tolist()
+    selected_train_ids = capped_train["_row"].tolist()
     gee_train = reference_samples.filter(
         ee.Filter.inList("_row", selected_train_ids)
     )
@@ -296,7 +594,7 @@ def run_tasking(config, access_token):
         _order=np.random.default_rng(seed).random(len(reference))
     )
     production = cap_per_block(production, selected_cap)
-    production_ids = production["_row"].astype(int).tolist()
+    production_ids = production["_row"].tolist()
     gee_production = reference_samples.filter(
         ee.Filter.inList("_row", production_ids)
     )
@@ -337,11 +635,14 @@ def run_tasking(config, access_token):
             "target_column": target,
             "target_threshold": threshold,
             "block_size_m": block_size,
+            "block_crs": block_crs,
+            "block_coordinate_source": "columns" if use_existing_block_columns else "geometry",
             "test_block_fraction": test_fraction,
             "points_per_block": point_caps,
             "block_fractions": block_fractions,
             "auc_tolerance": auc_tolerance,
-            "csv_url": config["csv_url"],
+            "csv_url": csv_url,
+            "input_asset_id": input_asset_id,
             "columns": {
                 "longitude": lon,
                 "latitude": lat,
@@ -420,17 +721,44 @@ def run_tasking(config, access_token):
     }
     report_json = json.dumps(report, default=_json_default, separators=(",", ":"))
 
-    bucket_name = os.environ["RESULTS_BUCKET"]
-    object_name = f"{run_name}/results.json"
-    storage.Client().bucket(bucket_name).blob(object_name).upload_from_string(
+    bucket_name = config.get("results_bucket") or os.environ["RESULTS_BUCKET"]
+    results_prefix = (config.get("results_prefix") or "").strip("/")
+    object_prefix = f"{results_prefix}/{run_name}" if results_prefix else run_name
+    object_name = f"{object_prefix}/results.json"
+    viewer_object_name = f"{object_prefix}/viewer.html"
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    bucket.blob(object_name).upload_from_string(
         report_json, content_type="application/json"
     )
     results_uri = f"gs://{bucket_name}/{object_name}"
+    results_url = public_https_url(bucket_name, object_name)
+
+    viewer_html = _viewer_html(report, results_url)
+    bucket.blob(viewer_object_name).upload_from_string(
+        viewer_html, content_type="text/html; charset=utf-8"
+    )
+    viewer_uri = f"gs://{bucket_name}/{viewer_object_name}"
+    viewer_url = public_https_url(bucket_name, viewer_object_name)
 
     return {
         "status": "success",
         "run_name": run_name,
         "results_uri": results_uri,
+        "results_url": results_url,
+        "viewer_uri": viewer_uri,
+        "viewer_url": viewer_url,
         "assets": report["assets"],
+        "outputs": {
+            "results_json": {"gcs_uri": results_uri, "url": results_url},
+            "viewer_html": {"gcs_uri": viewer_uri, "url": viewer_url},
+        },
+        "summary": {
+            "recommended_points_per_block": selected_cap,
+            "recommended_minimum_block_fraction": recommended_block_fraction,
+            "sklearn_auc": sklearn_metrics["auc"],
+            "earth_engine_auc": float(gee_auc),
+        },
         "results": report,
     }

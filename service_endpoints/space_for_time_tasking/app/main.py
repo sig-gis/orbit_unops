@@ -1,36 +1,43 @@
 from threading import Lock
 from typing import Optional, Union
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.endpoint_functions import run_tasking
+from app.routers import inputs
 
 
-app = FastAPI()
+app = FastAPI(
+    title="Space-for-time Model Creation API",
+    description="API for uploading reference data, ingesting it to Earth Engine, and creating Earth Engine model assets from space-for-time tasking experiments.",
+    version="0.2.0",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+app.include_router(inputs.router)
 
 # Earth Engine's Python client stores credentials globally. Serialize requests
 # so credentials from two users cannot overlap inside one container instance.
 ee_lock = Lock()
 
 
-class TaskingRequest(BaseModel):
-    csv_url: str
+class TaskingRunRequest(BaseModel):
+    input_asset_id: str
     cloud_project: str
     run_name: Optional[str] = None
 
     longitude_column: str = "lon"
     latitude_column: str = "lat"
-    block_x_column: str = "X_ITM"
-    block_y_column: str = "Y_ITM"
+    block_x_column: Optional[str] = None
+    block_y_column: Optional[str] = None
+    block_crs: str = "EPSG:6933"
     target_column: str = "LOI_PCT"
     target_threshold: float = 30.0
     reference_year: int = 2018
@@ -49,22 +56,17 @@ class TaskingRequest(BaseModel):
     sampling_scale_m: int = 10
     seed: int = 42
 
+    asset_root: Optional[str] = None
+    sample_asset_id: Optional[str] = None
+    model_asset_id: Optional[str] = None
+    results_bucket: Optional[str] = None
+    results_prefix: Optional[str] = None
 
-@app.post("/task")
-def tasking_endpoint(
-    request: TaskingRequest,
-    authorization: Optional[str] = Header(default=None),
-):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Bearer token required")
-
-    access_token = authorization.removeprefix("Bearer ").strip()
-    if not access_token:
-        raise HTTPException(status_code=401, detail="Bearer token required")
-
+@app.post("/tasking/run")
+def tasking_run_endpoint(request: TaskingRunRequest):
     try:
         with ee_lock:
-            return run_tasking(request.model_dump(), access_token)
+            return run_tasking(request.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

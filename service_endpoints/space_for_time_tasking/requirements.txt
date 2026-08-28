@@ -1,4 +1,4 @@
-earthengine-api
+﻿earthengine-api
 fastapi
 google-cloud-storage
 numpy
@@ -6,4 +6,7 @@ pandas
 pydantic
 requests
 scikit-learn
+matplotlib
 uvicorn
+python-multipart
+
