@@ -149,7 +149,7 @@ const API = {
                 // Legacy fallback: if it's an old EE MapID but we have the GCS
                 else if (sdkData.result?.geotiff_file_name_prefix) {
                     // Fallback for old jobs that don't have the explicit TiTiler URL
-                    const bucket = "unops"; // Default bucket for old jobs
+                    const bucket = sdkData.file_details?.bucket || "unops";
                     const prefix = sdkData.result.geotiff_file_name_prefix;
                     layer.tile_url = `${this.baseUrl}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=https://storage.googleapis.com/${bucket}/${prefix}.tif&bidx=1&nodata=0&colormap=%7B"1":"%23FF5722FF"%7D`;
                     // layer.tile_url = `${this.baseUrl}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=https://storage.googleapis.com/${bucket}/${prefix}.tif&bidx=1&nodata=0&colormap=%7B%221%22%3A%22%23FF5722FF%22%7D`;

@@ -658,15 +658,13 @@ def retry_export(job_id: str, background_tasks: BackgroundTasks) -> ExportStatus
         if not job.get("request"):
             raise HTTPException(status_code=400, detail="Cannot retry: original request payload not found")
 
-        # Reset status
-        job["status"] = "queued"
-        job["error"] = None
-        job["updated_at"] = utc_now_iso()
-        
         request_obj = ExportRequest(**job["request"])
 
+    _set_job(job_id, {"status": "queued", "error": None})
     background_tasks.add_task(_run_export_job, job_id, request_obj)
-    return ExportStatusResponse(**job)
+    
+    with _jobs_lock:
+        return ExportStatusResponse(**_jobs[job_id])
 
 
 @app.get("/exports", response_model=list[ExportStatusResponse])
@@ -699,6 +697,7 @@ def delete_export(job_id: str):
             del _files[file_id]
             
         del _jobs[job_id]
+        _save_jobs()
 
 
 @app.get("/exports/{job_id}", response_model=ExportStatusResponse)
@@ -786,21 +785,7 @@ def cancel_export(job_id: str) -> ExportStatusResponse:
         return ExportStatusResponse(**_jobs[job_id])
 
 
-@app.delete("/exports/{job_id}")
-def delete_export(job_id: str) -> Dict[str, Any]:
-    """Delete a job record without deleting exported GCS files."""
-    with _jobs_lock:
-        job = _jobs.pop(job_id, None)
-        if not job:
-            raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
 
-        file_id = job.get("fileId") or job.get("file_id")
-        if file_id:
-            _files.pop(file_id, None)
-
-        _save_jobs()
-
-    return {"deleted": True, "job_id": job_id, "fileId": file_id}
 
 
 @app.get("/export-status/{fileId}", response_model=FileStatusResponse)

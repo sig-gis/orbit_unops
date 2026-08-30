@@ -113,7 +113,9 @@ const SDG = {
         try {
             const countryFmt = job.aoi_name.toLowerCase().replace(/ /g, "_").replace(/-/g, "_");
             const dates = `${job.date_range_start}-${job.date_range_end}`;
-            const baseUrl = `https://storage.googleapis.com/unops/exports/unops/${job.fileId}/urban_extent_${countryFmt}_${dates}`;
+            const bucket = job.file_details?.bucket || "unops";
+            const prefix = job.file_details?.file_prefix || `exports/unops/${job.fileId}`;
+            const baseUrl = `https://storage.googleapis.com/${bucket}/${prefix}/urban_extent_${countryFmt}_${dates}`;
             
             const parseCSV = (url) => new Promise((resolve, reject) => {
                 const proxyUrl = `${API.baseUrl}/proxy-csv?url=${encodeURIComponent(url)}`;
@@ -161,7 +163,7 @@ const SDG = {
             
             // Find latest completed job for this country
             const jobs = await API.listJobs();
-            const latestJob = jobs.find(j => j.aoi_name.toLowerCase() === country.toLowerCase() && j.state === 'COMPLETED');
+            const latestJob = jobs.find(j => j.aoi_name.toLowerCase() === country.toLowerCase() && ['COMPLETED', 'FAILED'].includes(j.state));
             const processingJob = jobs.find(j => j.aoi_name.toLowerCase() === country.toLowerCase() && ['PENDING', 'PROCESSING'].includes(j.state));
             
             let fileId, dates;
@@ -488,9 +490,16 @@ const SDG = {
 
         const startYear = document.getElementById('sdg-start-year').value;
         const endYear = document.getElementById('sdg-end-year').value;
+        const start = parseInt(startYear);
+        const end = parseInt(endYear);
 
-        if (!startYear || !endYear || parseInt(startYear) >= parseInt(endYear)) {
+        if (!start || !end || start >= end) {
             Toast.show('End year must be greater than start year.', 'error');
+            return;
+        }
+        
+        if (end - start < 2) {
+            Toast.show('SDG 11.3.1 requires at least a 3-year span (e.g. 2023 to 2025).', 'error');
             return;
         }
 

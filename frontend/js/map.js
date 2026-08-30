@@ -24,12 +24,12 @@ const MapModule = {
 
         // Base layers (theme-aware)
         this.baseLayers.light = L.tileLayer(
-            'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-            { attribution: '&copy; <a href="https://carto.com/">CARTO</a>', maxZoom: 19, subdomains: 'abcd' }
+            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            { attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>', maxZoom: 19 }
         );
         this.baseLayers.dark = L.tileLayer(
-            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-            { attribution: '&copy; <a href="https://carto.com/">CARTO</a>', maxZoom: 19, subdomains: 'abcd' }
+            'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+            { attribution: 'Tiles &copy; Esri', maxZoom: 16 }
         );
         this.baseLayers.satellite = L.tileLayer(
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',

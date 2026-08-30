@@ -208,6 +208,7 @@ def aggregate_regional_stats(
         geometry=geometry,
         scale=scale,
         maxPixels=max_pixels,
+        tileScale=16,
     )
     # Return the first value from the dictionary (works for single-band images).
     key = image.bandNames().get(0)
