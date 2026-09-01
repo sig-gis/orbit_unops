@@ -236,7 +236,7 @@ const SDG = {
         const validArea = areaData.filter(r => r.year);
         const validSpan = spanData.filter(r => r.span && r.urban_method === 'RF' && r.pop_source === 'GHS_POP');
 
-        if (validAnnual.length === 0 || validArea.length === 0) {
+        if (validArea.length === 0) {
             this.heroData.innerHTML = `<p style="color: var(--text-muted);">Tabular data is incomplete for ${country}.</p>`;
             return;
         }
@@ -498,8 +498,8 @@ const SDG = {
             return;
         }
         
-        if (end - start < 2) {
-            Toast.show('SDG 11.3.1 requires at least a 3-year span (e.g. 2023 to 2025).', 'error');
+        if (end - start < 3) {
+            Toast.show('SDG 11.3.1 requires at least a 4-year span (e.g. 2019 to 2022) to measure growth.', 'error');
             return;
         }
 
@@ -526,6 +526,9 @@ const SDG = {
             
             if (typeof App !== 'undefined' && App.navigate) {
                 App.navigate('jobs');
+                setTimeout(() => {
+                    document.querySelector('.tab-btn[data-tab="active"]')?.click();
+                }, 50);
             }
             if (typeof Jobs !== 'undefined' && Jobs.loadJobs) {
                 Jobs.loadJobs();
