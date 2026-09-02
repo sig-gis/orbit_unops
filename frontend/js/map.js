@@ -20,6 +20,7 @@ const MapModule = {
             zoom: 2,
             zoomControl: true,
             attributionControl: true,
+            worldCopyJump: true
         });
 
         // Base layers (theme-aware)
@@ -169,21 +170,33 @@ const MapModule = {
             layer.bringToFront();
             this.map.fitBounds(layer.getBounds(), { padding: [50, 50] });
 
-            // Create inverted mask polygon
+            // Create inverted mask polygon (expert fix: infinite panning support)
             const outerBounds = [
-                [-90, -360],
-                [90, -360],
-                [90, 360],
-                [-90, 360]
+                [-90, -3600],
+                [90, -3600],
+                [90, 3600],
+                [-90, 3600]
             ];
+            
             let holes = [];
+            let baseHoles = [];
+            
             if (feature.geometry.type === 'Polygon') {
-                holes.push(feature.geometry.coordinates[0].map(c => [c[1], c[0]]));
+                baseHoles.push(feature.geometry.coordinates[0]);
             } else if (feature.geometry.type === 'MultiPolygon') {
                 feature.geometry.coordinates.forEach(poly => {
-                    holes.push(poly[0].map(c => [c[1], c[0]]));
+                    baseHoles.push(poly[0]);
                 });
             }
+            
+            // Duplicate the holes every 360 degrees of longitude so the highlight repeats seamlessly
+            for (let i = -5; i <= 5; i++) {
+                const offset = i * 360;
+                baseHoles.forEach(baseHole => {
+                    holes.push(baseHole.map(c => [c[1], c[0] + offset])); // Convert GeoJSON [lng, lat] to Leaflet [lat, lng+offset]
+                });
+            }
+
             if (holes.length > 0) {
                 this.maskLayer = L.polygon([outerBounds, ...holes], {
                     stroke: false,
