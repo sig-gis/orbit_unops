@@ -65,7 +65,15 @@ const App = {
                         MapModule.highlightCountry(feature, targetLayer);
                     }
                 }
+                const clearBtn = document.getElementById('btn-clear-country');
+                if (clearBtn) clearBtn.style.display = 'flex';
             }
+        });
+
+        // Clear country
+        document.getElementById('btn-clear-country')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.deselectCountry();
         });
 
         // System Menu Toggle
@@ -259,9 +267,33 @@ const App = {
             const select = document.getElementById('country-select');
             if (select) select.value = countryName;
         }
+        
+        const clearBtn = document.getElementById('btn-clear-country');
+        if (clearBtn) clearBtn.style.display = 'flex';
 
         if (typeof SDG !== 'undefined' && SDG.onCountrySelected) {
             SDG.onCountrySelected(countryName);
+        }
+    },
+
+    deselectCountry() {
+        this.currentCountry = null;
+        
+        const select = document.getElementById('country-select');
+        if (select) select.value = '';
+        
+        const clearBtn = document.getElementById('btn-clear-country');
+        if (clearBtn) clearBtn.style.display = 'none';
+
+        if (typeof MapModule !== 'undefined' && MapModule.countryLayer) {
+             MapModule.countryLayer.eachLayer(layer => {
+                 MapModule.countryLayer.resetStyle(layer);
+             });
+             if (MapModule.map) MapModule.map.closePopup();
+        }
+
+        if (typeof SDG !== 'undefined' && SDG.onCountryDeselected) {
+            SDG.onCountryDeselected();
         }
     },
 

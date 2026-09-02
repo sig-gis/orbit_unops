@@ -703,6 +703,17 @@ const Jobs = {
                 const jobSummary = this._jobs.find(j => j.id === jobId);
                 if (jobSummary && jobSummary.aoi_name) {
                     const countryName = jobSummary.aoi_name;
+                    
+                    // Automatically open the SDG panel for this job's indicator
+                    if (typeof SDG !== 'undefined' && jobSummary.indicator_id) {
+                        if (SDG.activeIndicator !== jobSummary.indicator_id) {
+                            const btn = document.querySelector(`.sdg-toggle-btn[data-indicator="${jobSummary.indicator_id}"]`);
+                            if (btn) {
+                                SDG.toggleIndicator(jobSummary.indicator_id, btn);
+                            }
+                        }
+                    }
+
                     App.selectCountry(countryName, true);
                     if (typeof MapModule !== 'undefined' && MapModule.countryLayer) {
                         let feature = null;
@@ -759,7 +770,10 @@ const Jobs = {
             Toast.show(`Loaded ${job.layers.length} layers from job`, 'success');
 
             if (typeof MapModule !== 'undefined' && MapModule.addLegend) {
-                MapModule.addLegend('Urban Extent Raster', 'Red areas represent classified built-up surfaces.', '#E85C0E');
+                const dateStr = (job.date_range_start && job.date_range_end) 
+                    ? `${job.date_range_start}-${job.date_range_end} Analysis` 
+                    : 'Analysis';
+                MapModule.addLegend('Urban Extent Raster', `Red areas represent classified built-up surfaces for ${dateStr}.`, '#E85C0E');
             }
         }
     },

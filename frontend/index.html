@@ -56,7 +56,7 @@
             </a>
             <div class="nav-divider"></div>
             <div style="padding: 0 1.5rem; margin-bottom: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">SDG Indicators</div>
-            <a class="nav-item" id="btn-sdg-11" title="SDG 11: Sustainable Cities">
+            <a class="nav-item sdg-toggle-btn" id="btn-sdg-11" data-indicator="11.3.1" title="SDG 11: Sustainable Cities">
                 <i data-lucide="building" class="icon"></i>
                 <span class="nav-label">SDG 11.3.1</span>
             </a>
@@ -109,9 +109,12 @@
                 </h1>
             </div>
             <div class="header-center">
-                <div class="aoi-selector" id="country-selector">
+                <div class="aoi-selector" id="country-selector" style="position: relative; display: flex; align-items: center;">
                     <i data-lucide="search" class="icon"></i>
-                    <input type="text" id="country-select" list="country-list" class="aoi-dropdown" placeholder="Search for a country..." autocomplete="off" style="background: transparent; border: none; outline: none; width: 100%; color: inherit; padding: 0.5rem;">
+                    <input type="text" id="country-select" list="country-list" class="aoi-dropdown" placeholder="Search for a country..." autocomplete="off" style="background: transparent; border: none; outline: none; flex: 1; color: inherit; padding: 0.5rem; padding-right: 2rem;">
+                    <button id="btn-clear-country" title="Clear selection" style="display: none; position: absolute; right: 0.5rem; background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 0; align-items: center; justify-content: center;">
+                        <i data-lucide="x" class="icon sm"></i>
+                    </button>
                     <datalist id="country-list"></datalist>
                 </div>
             </div>
@@ -162,7 +165,7 @@
                             <select id="sdg-end-year" class="form-input"></select>
                         </div>
                     </div>
-                    <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">* A minimum 3-year span is required for SDG 11.3.1 (e.g., 2020 to 2022).</p>
+                    <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">* A minimum 4-year span is required for SDG 11.3.1 (e.g., 2019 to 2022).</p>
                 </div>
                 <button class="btn-primary full-width" id="btn-submit-sdg-job" style="margin-top: 1rem;">
                     <i data-lucide="image" class="icon"></i> Generate Raster Export
@@ -360,7 +363,19 @@
     <script src="/js/stats.js?v=27July26"></script>
 
     <script src="/js/admin.js?v=27July26"></script>
-    <script src="/js/sdg.js?v=28Aug26-12"></script>
+    <script src="/js/sdg.js?v=Manager1"></script>
+    
+    <!-- SDG Plugins -->
+    <script type="module">
+        import SDG1131Plugin from '/js/indicators/sdg_11_3_1/index.js';
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof SDG !== 'undefined') {
+                SDG.registerPlugin('11.3.1', SDG1131Plugin);
+            }
+        });
+    </script>
+
     <script src="/js/app.js?v=27July26"></script>
 </body>
 </html>
