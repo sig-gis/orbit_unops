@@ -54,15 +54,20 @@
                 <span class="nav-label">Jobs</span>
                 <span class="nav-badge" id="active-jobs-badge" style="display:none">0</span>
             </a>
+            
+            <div class="nav-divider"></div>
+            <div style="padding: 0 1.5rem; margin-bottom: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">Land Cover Tasks</div>
+            <a class="nav-item nlc-toggle-btn" id="btn-nlc" title="National Land Cover">
+                <i data-lucide="map" class="icon"></i>
+                <span class="nav-label">National Land Cover</span>
+            </a>
+            
             <div class="nav-divider"></div>
             <div style="padding: 0 1.5rem; margin-bottom: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">SDG Indicators</div>
             <a class="nav-item sdg-toggle-btn" id="btn-sdg-11" data-indicator="11.3.1" title="SDG 11: Sustainable Cities">
                 <i data-lucide="building" class="icon"></i>
                 <span class="nav-label">SDG 11.3.1</span>
-            </a>
-
-
-            <div class="nav-divider"></div>
+            </a>            <div class="nav-divider"></div>
         </nav>
 
         <div class="sidebar-footer">
@@ -128,6 +133,44 @@
             <div id="map" class="map-container"></div>
 
             <!-- Minimized SDG Panel Restore Button -->
+            <button id="nlc-analytics-panel-restore" style="display:none; position: absolute; right: 20px; top: 20px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 0.75rem; cursor: pointer; color: var(--brand-secondary); align-items:center; gap:0.5rem;">
+                <i data-lucide="bar-chart-2" class="icon"></i>
+                <span style="font-weight:600; font-size:0.9rem;">NLC Panel</span>
+            </button>
+
+            <!-- NLC Analytics Panel -->
+            <div class="expansion-panel" id="nlc-analytics-panel" style="display:none; position: absolute; right: 20px; top: 20px; bottom: 20px; width: 600px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border-left: 4px solid var(--brand-secondary); padding: 1.5rem; overflow-y: auto; flex-direction: column;">
+                <div class="expansion-header" style="margin-bottom: 10px;">
+                    <div class="expansion-title">
+                        <i data-lucide="map" class="icon" style="color:var(--brand-secondary)"></i>
+                        <h3>National Land Cover Results</h3>
+                    </div>
+                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                        <button class="expansion-close" id="nlc-analytics-panel-minimize" title="Minimize Panel"><i data-lucide="minimize-2" class="icon sm"></i></button>
+                        <button class="expansion-close" id="nlc-analytics-panel-close" title="Close Panel"><i data-lucide="x" class="icon"></i></button>
+                    </div>
+                </div>
+                
+                <div style="flex: 1; display: flex; flex-direction: column; width: 100%;">
+                    <iframe id="nlc-analytics-frame" style="width: 100%; flex: 1; border: none; min-height: 500px;" src="about:blank"></iframe>
+                    
+                    <div id="nlc-analytics-metrics" style="margin-top: 15px; display: flex; gap: 10px; justify-content: space-around;">
+                        <div style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; flex: 1; border: 1px solid var(--border-light);">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Accuracy</div>
+                            <div id="nlc-analytics-acc" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">0%</div>
+                        </div>
+                        <div style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; flex: 1; border: 1px solid var(--border-light);">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Kappa</div>
+                            <div id="nlc-analytics-kappa" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">0%</div>
+                        </div>
+                        <div style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; flex: 1; border: 1px solid var(--border-light);">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Trees</div>
+                            <div id="nlc-analytics-trees" style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <button id="sdg-panel-restore" style="display:none; position: absolute; right: 20px; top: 20px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 0.75rem; cursor: pointer; color: var(--brand-secondary); align-items:center; gap:0.5rem;">
                 <i data-lucide="bar-chart-2" class="icon"></i>
                 <span style="font-weight:600; font-size:0.9rem;">SDG Panel</span>
@@ -170,6 +213,126 @@
                 <button class="btn-primary full-width" id="btn-submit-sdg-job" style="margin-top: 1rem;">
                     <i data-lucide="image" class="icon"></i> Generate Raster Export
                 </button>
+            </div>
+
+            <!-- National Land Cover Panel -->
+            <div class="expansion-panel" id="nlc-panel" style="display:none; position: absolute; right: 20px; top: 20px; bottom: 20px; width: 400px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border-left: 4px solid var(--brand-secondary); padding: 1.5rem; overflow-y: auto; flex-direction: column;">
+                <div class="expansion-header">
+                    <div class="expansion-title">
+                        <i data-lucide="map" class="icon" style="color:var(--brand-secondary)"></i>
+                        <h3>National Land Cover</h3>
+                    </div>
+                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                        <button class="expansion-close" id="nlc-panel-minimize" title="Minimize Panel"><i data-lucide="minimize-2" class="icon sm"></i></button>
+                        <button class="expansion-close" id="nlc-panel-close" title="Close Panel"><i data-lucide="x" class="icon"></i></button>
+                    </div>
+                </div>
+                <div class="expansion-subtitle">Trigger Earth Engine Land Cover Classification</div>
+                
+                <div style="padding: 1rem 0; display: flex; gap: 0.5rem;">
+                    <button id="nlc-btn-demo" class="btn-secondary" style="flex: 1;"><i data-lucide="play" class="icon sm"></i> Demo (Ireland)</button>
+                    <button id="nlc-btn-custom" class="btn-secondary" style="flex: 1;"><i data-lucide="upload" class="icon sm"></i> Custom Upload</button>
+                </div>
+
+                <div id="nlc-form-container" style="display:none; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                    
+                    <div id="nlc-demo-info" style="display:none; padding: 10px; background: var(--bg-tertiary); border: 1px solid var(--brand-secondary); border-radius: 6px; margin-bottom: 1rem;">
+                        <h4 style="margin-bottom: 5px; font-size: 0.85rem; color: var(--brand-secondary);">Ireland Demo Loaded</h4>
+                        <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0; line-height: 1.4;">
+                            You are running the test configuration for Ireland. This job will target the `LOI_PCT` column from the predefined asset, and run a Random Forest classification using 100 trees with a target threshold of 30.
+                        </p>
+                        
+                        <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 8px;">
+                            <div>
+                                <label style="font-size: 0.7rem; color: var(--text-tertiary); text-transform: uppercase;">GEE Asset ID</label>
+                                <input type="text" class="form-input" style="background:var(--bg-primary); cursor:not-allowed;" value="projects/damage-control-403117/assets/pc655..._test_ireland_noAE" disabled>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <div style="flex: 1;">
+                                    <label style="font-size: 0.7rem; color: var(--text-tertiary); text-transform: uppercase;">Classifier</label>
+                                    <input type="text" class="form-input" style="background:var(--bg-primary); cursor:not-allowed;" value="smileRandomForest" disabled>
+                                </div>
+                                <div style="flex: 1;">
+                                    <label style="font-size: 0.7rem; color: var(--text-tertiary); text-transform: uppercase;">Target Column</label>
+                                    <input type="text" class="form-input" style="background:var(--bg-primary); cursor:not-allowed;" value="LOI_PCT" disabled>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="nlc-upload-section" style="margin-bottom: 1rem;">
+                        <h4 style="margin-bottom: 10px; font-size: 0.85rem;">1. Data Source</h4>
+                        
+                        <div class="view-tabs" style="margin-bottom: 10px; border-bottom: 1px solid var(--border-color); display: flex;">
+                            <button class="tab-btn active" data-nlc-source="csv" style="flex:1; padding: 5px 10px; font-size:0.75rem;">Local CSV</button>
+                            <button class="tab-btn" data-nlc-source="gee" style="flex:1; padding: 5px 10px; font-size:0.75rem;">GEE Asset</button>
+                            <button class="tab-btn" data-nlc-source="gcs" style="flex:1; padding: 5px 10px; font-size:0.75rem;">GCS URI</button>
+                        </div>
+                        
+                        <div id="nlc-source-csv-container">
+                            <label for="nlc-file-upload" style="font-size: 0.75rem; color: var(--text-muted);">Upload Point Data (.csv)</label>
+                            <input type="file" id="nlc-file-upload" class="form-input" accept=".csv" style="margin-top: 5px;">
+                        </div>
+                        
+                        <div id="nlc-source-gee-container" style="display:none;">
+                            <label for="nlc-gee-asset" style="font-size: 0.75rem; color: var(--text-muted);">GEE Asset ID</label>
+                            <input type="text" id="nlc-gee-asset" class="form-input" placeholder="projects/.../assets/points" style="margin-top: 5px;">
+                        </div>
+                        
+                        <div id="nlc-source-gcs-container" style="display:none;">
+                            <label for="nlc-gcs-uri" style="font-size: 0.75rem; color: var(--text-muted);">GCS URI</label>
+                            <input type="text" id="nlc-gcs-uri" class="form-input" placeholder="gs://bucket/points.csv" style="margin-top: 5px;">
+                        </div>
+                    </div>
+
+                    <div id="nlc-mapping-section" style="display:none; margin-bottom: 1rem; padding: 10px; background: var(--bg-primary); border-radius: 6px;">
+                        <h4 style="margin-bottom: 10px; font-size: 0.85rem;">2. Map Columns</h4>
+                        
+                        <div id="nlc-mapping-dropdowns" style="display:none; flex-direction: column; gap: 10px;">
+                            <div>
+                                <label for="nlc-map-lat" style="font-size: 0.75rem;">Latitude Column</label>
+                                <select id="nlc-map-lat" class="form-input"></select>
+                            </div>
+                            <div>
+                                <label for="nlc-map-lon" style="font-size: 0.75rem;">Longitude Column</label>
+                                <select id="nlc-map-lon" class="form-input"></select>
+                            </div>
+                            <div>
+                                <label for="nlc-map-target" style="font-size: 0.75rem;">Target Class Column</label>
+                                <select id="nlc-map-target" class="form-input"></select>
+                            </div>
+                        </div>
+
+                        <div id="nlc-mapping-inputs" style="display:flex; flex-direction: column; gap: 10px;">
+                            <div>
+                                <label for="nlc-input-lat" style="font-size: 0.75rem;">Latitude Column</label>
+                                <input type="text" id="nlc-input-lat" class="form-input" placeholder="e.g. lat, latitude, y">
+                            </div>
+                            <div>
+                                <label for="nlc-input-lon" style="font-size: 0.75rem;">Longitude Column</label>
+                                <input type="text" id="nlc-input-lon" class="form-input" placeholder="e.g. lon, longitude, x">
+                            </div>
+                            <div>
+                                <label for="nlc-input-target" style="font-size: 0.75rem;">Target Class Column</label>
+                                <input type="text" id="nlc-input-target" class="form-input" placeholder="e.g. target, class, label">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom: 1rem;">
+                        <label for="nlc-target-threshold" style="font-size: 0.85rem; font-weight: 600;">3. Target Threshold</label>
+                        <input type="number" id="nlc-target-threshold" class="form-input" value="30" style="margin-top: 5px;">
+                    </div>
+                    
+                    <div style="margin-bottom: 1rem;">
+                        <label for="nlc-trees" style="font-size: 0.85rem; font-weight: 600;">Number of Trees</label>
+                        <input type="number" id="nlc-trees" class="form-input" value="100" style="margin-top: 5px;">
+                    </div>
+
+                    <button class="btn-primary full-width" id="btn-submit-nlc-job" style="margin-top: 1rem;">
+                        <i data-lucide="cpu" class="icon"></i> Run Classification
+                    </button>
+                </div>
             </div>
 
 
@@ -350,6 +513,7 @@
     <!-- ═══ Toast Container ═══ -->
     <div class="toast-container" id="toast-container"></div>
 
+
     <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
@@ -368,10 +532,14 @@
     <!-- SDG Plugins -->
     <script type="module">
         import SDG1131Plugin from '/js/indicators/sdg_11_3_1/index.js';
+        import NLCPlugin from '/js/features/national_land_cover/index.js';
         
         document.addEventListener('DOMContentLoaded', () => {
             if (typeof SDG !== 'undefined') {
                 SDG.registerPlugin('11.3.1', SDG1131Plugin);
+            }
+            if (typeof NLCPlugin !== 'undefined' && NLCPlugin.init) {
+                NLCPlugin.init();
             }
         });
     </script>

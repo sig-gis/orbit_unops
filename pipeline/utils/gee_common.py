@@ -12,6 +12,7 @@ def initialize_ee(project: Optional[str] = None) -> None:
     try:
         if project:
             ee.Initialize(project=project)
+            ee.data.setCloudApiUserProject(project)
         else:
             ee.Initialize()
     except Exception as exc:

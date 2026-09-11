@@ -267,6 +267,9 @@ class FileDeleteResponse(BaseModel):
 app = FastAPI(title="UNOPS Export API", version="1.0.0")
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
 
+from pipeline.features.national_land_cover.routers import land_cover
+app.include_router(land_cover.router, prefix="/api/land-cover", tags=["Land Cover"])
+
 @app.exception_handler(rio_tiler.errors.TileOutsideBounds)
 async def tile_outside_bounds_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=404, content={"detail": str(exc)})
@@ -486,7 +489,7 @@ def _set_job(job_id: str, data: Dict[str, Any]) -> None:
         _save_jobs()
 
 
-def _run_export_job(job_id: str, request: ExportRequest) -> None:
+def _run_export_job(job_id: str, request: ExportRequest, step: int = 1, previous_result: dict = None) -> None:
     """Background task: dispatch to the correct indicator function."""
     _set_job(job_id, {"status": "running"})
     try:
@@ -511,14 +514,25 @@ def _run_export_job(job_id: str, request: ExportRequest) -> None:
 
         # Strip API-layer-only keys that indicator functions don't accept.
         indicator_data = {k: v for k, v in request_data.items() if k not in ["indicator_id", "version"]}
+        
+        indicator_data["step"] = step
+        if previous_result:
+            indicator_data["previous_result"] = previous_result
 
-        print(f"========== [BACKEND: JOB {job_id}] ==========")
+        print(f"========== [BACKEND: JOB {job_id} (STEP {step})] ==========")
         print(f"Indicator: {request.indicator_id} (v{version})")
         print(f"Payload sent to EE script: {indicator_data}")
         print(f"===========================================")
 
         result = indicator_fn(**indicator_data)
         result["fileId"] = file_id
+        
+        # Merge previous result to retain previous tasks or layers if needed
+        if previous_result:
+            merged_result = dict(previous_result)
+            merged_result.update(result)
+            result = merged_result
+            
         _set_job(job_id, {"status": "running", "result": result})
     except Exception as exc:
         import traceback
@@ -585,7 +599,20 @@ def _poll_ee_tasks_daemon():
                         if any_failed:
                             new_status = "failed"
                         elif all_completed and len(ee_status) > 0:
-                            new_status = "completed"
+                            next_step = job.get("result", {}).get("next_step")
+                            if next_step:
+                                # Dispatch the next step
+                                request_obj = ExportRequest(**job["request"])
+                                
+                                # Clear next_step immediately to prevent race conditions on next poll
+                                del job["result"]["next_step"]
+                                _jobs[job["job_id"]]["result"] = job["result"]
+                                _save_jobs()
+                                
+                                threading.Thread(target=_run_export_job, args=(job["job_id"], request_obj, next_step, job["result"])).start()
+                                continue  # Do not mark completed or save here, _run_export_job will handle it
+                            else:
+                                new_status = "completed"
 
                         if new_status != job["status"]:
                             _jobs[job["job_id"]]["status"] = new_status
@@ -593,6 +620,8 @@ def _poll_ee_tasks_daemon():
                                 _jobs[job["job_id"]]["completed_at"] = datetime.utcnow().isoformat()
                             if any_failed:
                                 _jobs[job["job_id"]]["error"] = " | ".join(error_texts)
+                            if "next_step" in job["result"]:
+                                del job["result"]["next_step"]
                             _jobs[job["job_id"]]["result"] = job["result"]
                             _save_jobs()
         except Exception as e:

@@ -490,8 +490,8 @@ const Jobs = {
         tbody.innerHTML = activeJobs.map(job => `
             <tr class="fade-in">
                 <td class="job-id-cell" title="${job.id}">${job.id.substring(0, 8)}…</td>
-                <td>${job.aoi_name || job.country || '—'}</td>
-                <td>${this._indicatorLabel(job.indicator_id)}</td>
+                <td>${this._formatCountryName(job)}</td>
+                <td><span class="badge" style="background:var(--overlay-bg); color:var(--brand-secondary)">${this._formatIndicatorName(job)}</span></td>
                 <td>${this._stateBadge(job)}</td>
                 <td>${this._timeAgo(job.submitted_at)}</td>
                 <td class="job-actions">${this._actionButtons(job)}</td>
@@ -533,8 +533,8 @@ const Jobs = {
         tbody.innerHTML = filtered.map(job => `
             <tr>
                 <td class="job-id-cell" title="${job.id}">${job.id.substring(0, 8)}…</td>
-                <td>${job.aoi_name || job.country || '—'}</td>
-                <td>${this._indicatorLabel(job.indicator_id)}</td>
+                <td>${this._formatCountryName(job)}</td>
+                <td><span class="badge" style="background:var(--overlay-bg); color:var(--brand-secondary)">${this._formatIndicatorName(job)}</span></td>
                 <td>${this._stateBadge(job)}</td>
                 <td>${this._timeAgo(job.submitted_at)}</td>
                 <td>
@@ -543,7 +543,9 @@ const Jobs = {
                       : (job.completed_at ? this._timeAgo(job.completed_at) : '—')}
                 </td>
                 <td class="job-actions">
-                    ${job.state === 'COMPLETED' ? `<button class="action-btn view" data-action="view" data-job-id="${job.id}"><i data-lucide="eye" class="icon sm"></i> View</button>` : ''}
+                    ${job.state === 'COMPLETED' ? (job.result?.html_chart ? `
+                        <button class="action-btn view nlc-view-btn" data-action="view-nlc" data-job-id="${job.id}" data-chart="${job.result.html_chart}" data-json="${job.result.json_report}" title="View Results"><i data-lucide="bar-chart-2" class="icon sm"></i> View Results</button>
+                    ` : `<button class="action-btn view" data-action="view" data-job-id="${job.id}"><i data-lucide="eye" class="icon sm"></i> View</button>`) : ''}
                     ${job.state === 'FAILED' ? `<button class="action-btn approve" data-action="retry" data-job-id="${job.id}"><i data-lucide="refresh-cw" class="icon sm"></i> Retry</button>` : ''}
                     <button class="action-btn cancel" data-action="delete" data-job-id="${job.id}" title="Delete Job Record"><i data-lucide="trash-2" class="icon sm"></i></button>
                 </td>
@@ -734,6 +736,11 @@ const Jobs = {
                 App.navigate('map');
                 Toast.show('Loading raster layers...', 'info');
                 this._viewJobLayers(jobSummary);
+            } else if (action === 'view-nlc') {
+                const jobSummary = this._jobs.find(j => j.id === jobId);
+                if (jobSummary && jobSummary.result) {
+                    this._viewNLCResults(jobSummary);
+                }
             } else if (action === 'delete') {
                 if (confirm('Are you sure you want to delete this job record? This cannot be undone.')) {
                     await API.deleteJob(jobId);
@@ -747,6 +754,59 @@ const Jobs = {
         }
     },
 
+    _viewNLCResults(job) {
+        // Switch to map view
+        App.navigate('map');
+        
+        // Ensure panels are managed correctly
+        const nlcPanel = document.getElementById('nlc-analytics-panel');
+        const sdgPanel = document.getElementById('sdg-panel');
+        if (sdgPanel) sdgPanel.style.display = 'none';
+        
+        if (!nlcPanel) return;
+
+        // Zoom to Ireland (or standard AOI)
+        if (typeof MapModule !== 'undefined' && MapModule.map) {
+            MapModule.map.setView([53.4, -8.0], 7);
+        }
+
+        const frame = document.getElementById('nlc-analytics-frame');
+        
+        if (job.result?.html_chart) {
+            frame.src = job.result.html_chart;
+        } else {
+            frame.src = 'about:blank';
+        }
+        
+        if (job.result?.metrics) {
+            const data = job.result.metrics;
+            const acc = ((data.accuracy || 0) * 100).toFixed(1);
+            const kappa = (data.kappa || 0).toFixed(2);
+            const nTrees = data.training_parameters?.number_of_trees || '100';
+            
+            document.getElementById('nlc-analytics-acc').textContent = `${acc}%`;
+            document.getElementById('nlc-analytics-kappa').textContent = kappa;
+            document.getElementById('nlc-analytics-trees').textContent = nTrees;
+        }
+
+        nlcPanel.style.display = 'flex';
+        
+        // Hook up panel buttons if not already hooked
+        if (!nlcPanel.dataset.hooked) {
+            document.getElementById('nlc-analytics-panel-close').onclick = () => {
+                nlcPanel.style.display = 'none';
+            };
+            document.getElementById('nlc-analytics-panel-minimize').onclick = () => {
+                nlcPanel.style.display = 'none';
+                document.getElementById('nlc-analytics-panel-restore').style.display = 'flex';
+            };
+            document.getElementById('nlc-analytics-panel-restore').onclick = () => {
+                document.getElementById('nlc-analytics-panel-restore').style.display = 'none';
+                nlcPanel.style.display = 'flex';
+            };
+            nlcPanel.dataset.hooked = 'true';
+        }
+    },
 
 
     _viewJobLayers(job) {
@@ -776,6 +836,24 @@ const Jobs = {
                 MapModule.addLegend('Urban Extent Raster', `Red areas represent classified built-up surfaces for ${dateStr}.`, '#E85C0E');
             }
         }
+    },
+
+    _formatIndicatorName(job) {
+        if (job.indicator_id === 'NLC') return 'National Land Cover';
+        // Fallback for older jobs before the fix
+        if (!job.indicator_id && (job.result?.country === 'pc655-gcpa-unops-geo-is' || job.request?.classifier_type)) return 'National Land Cover';
+        if (!job.indicator_id) return 'Unknown Indicator';
+        const config = window.ORBIT_CONFIG?.INDICATORS?.[job.indicator_id];
+        return config ? config.name : `SDG ${job.indicator_id}`;
+    },
+
+    _formatCountryName(job) {
+        let name = job.aoi_name || job.country || job.aoi_id;
+        // Fix for old NLC jobs that used the google cloud project id as the country name
+        if (name === 'pc655-gcpa-unops-geo-is' && (!job.indicator_id || job.indicator_id === 'NLC')) {
+            return 'Demo (Ireland)';
+        }
+        return name || 'Global';
     },
 
     _timeAgo(dateStr) {
