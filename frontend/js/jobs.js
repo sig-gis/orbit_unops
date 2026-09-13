@@ -810,9 +810,11 @@ const Jobs = {
                         const htmlString = await res.text();
                         frame.srcdoc = htmlString;
                     } else {
+                        frame.removeAttribute('srcdoc');
                         frame.src = job.result.viewer_url;
                     }
                 } catch (e) {
+                    frame.removeAttribute('srcdoc');
                     frame.src = job.result.viewer_url;
                 }
             } else {
@@ -829,9 +831,11 @@ const Jobs = {
                         const htmlString = await res.text();
                         frame.srcdoc = htmlString;
                     } else {
+                        frame.removeAttribute('srcdoc');
                         frame.src = job.result.report_html_url;
                     }
                 } catch (e) {
+                    frame.removeAttribute('srcdoc');
                     frame.src = job.result.report_html_url;
                 }
             } else {
