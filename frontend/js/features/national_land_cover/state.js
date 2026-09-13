@@ -1,17 +1,12 @@
 export const State = {
-    isDemoMode: false,
+    customSourceType: 'csv', // Default source type
     file: null,
     headers: [],
     
-    // Default Ireland demo parameters
-    demoParams: {
-        input_asset_id: "projects/pc655-gcpa-unops-geo-is/assets/test_ireland_noAE",
+    // Hardcoded advanced parameters for all Tasking jobs
+    taskingDefaults: {
         cloud_project: "pc655-gcpa-unops-geo-is",
-        run_name: "test_4",
-        longitude_column: "lon",
-        latitude_column: "lat",
         block_crs: "EPSG:3857",
-        target_column: "LOI_PCT",
         target_threshold: 30,
         reference_year: 2022,
         block_size_m: 10000,
@@ -24,8 +19,6 @@ export const State = {
         sampling_scale_m: 10,
         seed: 42,
         asset_root: "projects/pc655-gcpa-unops-geo-is/assets/space_for_time_tasking",
-        sample_asset_id: "projects/pc655-gcpa-unops-geo-is/assets/space_for_time_tasking/samples_asset_run_004",
-        model_asset_id: "projects/pc655-gcpa-unops-geo-is/assets/space_for_time_tasking/rf_asset_run_004",
         results_bucket: "orbit-lc",
         results_prefix: "space_for_time_tasking/results"
     },
@@ -36,9 +29,5 @@ export const State = {
     
     setHeaders(headers) {
         this.headers = headers;
-    },
-    
-    setDemoMode(enabled) {
-        this.isDemoMode = enabled;
     }
 };

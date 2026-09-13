@@ -127,13 +127,15 @@ const API = {
         return {
             id: sdkData.job_id,
             fileId: sdkData.fileId,
-            indicator_id: sdkData.request ? sdkData.request.indicator_id : "11.3.1",
-            state: stateMap[sdkData.status] || "PENDING",
+            // Use top-level indicator_id if available, fallback to request, then default
+            indicator_id: sdkData.indicator_id || (sdkData.request ? sdkData.request.indicator_id : null) || "11.3.1",
+            state: stateMap[sdkData.status?.toLowerCase()] || sdkData.status?.toUpperCase() || 'UNKNOWN',
             submitted_at: sdkData.created_at,
             completed_at: sdkData.completed_at || null,
             error: sdkData.error || null,
-            aoi_name: sdkData.result?.country || sdkData.request?.country || "Custom AOI",
-            aoi_id: sdkData.result?.country || sdkData.request?.country || "custom",
+            // Use top-level aoi_id if available, fallback to country or custom
+            aoi_name: sdkData.aoi_id || sdkData.result?.country || sdkData.request?.country || "Custom AOI",
+            aoi_id: sdkData.aoi_id || sdkData.result?.country || sdkData.request?.country || "custom",
             date_range_start: sdkData.result?.year_start,
             date_range_end: sdkData.result?.year_end,
             results_data: sdkData.result ? {

@@ -543,8 +543,8 @@ const Jobs = {
                       : (job.completed_at ? this._timeAgo(job.completed_at) : '—')}
                 </td>
                 <td class="job-actions">
-                    ${job.state === 'COMPLETED' ? (job.result?.html_chart ? `
-                        <button class="action-btn view nlc-view-btn" data-action="view-nlc" data-job-id="${job.id}" data-chart="${job.result.html_chart}" data-json="${job.result.json_report}" title="View Results"><i data-lucide="bar-chart-2" class="icon sm"></i> View Results</button>
+                    ${job.state === 'COMPLETED' ? ((job.result?.html_chart || job.indicator_id === 'TASKING' || job.result?.viewer_url) ? `
+                        <button class="action-btn view nlc-view-btn" data-action="view-nlc" data-job-id="${job.id}" ${job.result?.html_chart ? `data-chart="${job.result.html_chart}"` : ''} ${job.result?.json_report ? `data-json="${job.result.json_report}"` : ''} title="View Results"><i data-lucide="bar-chart-2" class="icon sm"></i> View Results</button>
                     ` : `<button class="action-btn view" data-action="view" data-job-id="${job.id}"><i data-lucide="eye" class="icon sm"></i> View</button>`) : ''}
                     ${job.state === 'FAILED' ? `<button class="action-btn approve" data-action="retry" data-job-id="${job.id}"><i data-lucide="refresh-cw" class="icon sm"></i> Retry</button>` : ''}
                     <button class="action-btn cancel" data-action="delete" data-job-id="${job.id}" title="Delete Job Record"><i data-lucide="trash-2" class="icon sm"></i></button>
@@ -754,16 +754,22 @@ const Jobs = {
         }
     },
 
-    _viewNLCResults(job) {
+
+
+    async _viewNLCResults(job) {
         // Switch to map view
-        App.navigate('map');
+        if (typeof App !== 'undefined' && App.navigate) {
+            App.navigate('map');
+        }
         
         // Ensure panels are managed correctly
-        const nlcPanel = document.getElementById('nlc-analytics-panel');
+        const nlcAnalyticsPanel = document.getElementById('nlc-analytics-panel');
         const sdgPanel = document.getElementById('sdg-panel');
         if (sdgPanel) sdgPanel.style.display = 'none';
+        const nlcTaskingPanel = document.getElementById('nlc-panel');
+        if (nlcTaskingPanel) nlcTaskingPanel.style.display = 'none';
         
-        if (!nlcPanel) return;
+        if (!nlcAnalyticsPanel) return;
 
         // Zoom to Ireland (or standard AOI)
         if (typeof MapModule !== 'undefined' && MapModule.map) {
@@ -771,40 +777,93 @@ const Jobs = {
         }
 
         const frame = document.getElementById('nlc-analytics-frame');
+        const metricsContainer = document.getElementById('nlc-analytics-metrics');
         
-        if (job.result?.html_chart) {
-            frame.src = job.result.html_chart;
+        // Update titles to include both the specific AOI name AND the feature name
+        const aoiName = job.aoi_id || 'Job';
+        const titleEl = document.getElementById('nlc-analytics-title');
+        const restoreTextEl = document.getElementById('nlc-analytics-restore-text');
+        if (titleEl) titleEl.textContent = `${aoiName} - National Land Cover Tasking`;
+        if (restoreTextEl) restoreTextEl.textContent = `View ${aoiName} Tasking`;
+        
+        // CRITICAL: Make the panel visible BEFORE writing to the iframe document,
+        // otherwise Firefox/Chrome will discard the write or leave it blank.
+        nlcAnalyticsPanel.style.display = 'flex';
+        
+        // Show loading state while fetching
+        frame.srcdoc = `
+            <div style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: #666; margin: 0; background: #fafafa;">
+                <div style="border: 3px solid #e0e0e0; border-top: 3px solid #005587; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-bottom: 15px;"></div>
+                <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+                <div style="font-size: 0.9rem; font-weight: 500;">Loading Analytics Report...</div>
+            </div>
+        `;
+        
+        if (job.indicator_id === 'TASKING') {
+            if (metricsContainer) metricsContainer.style.display = 'none';
+            if (job.result?.viewer_url) {
+                // Fetch the HTML securely via our backend proxy to bypass GCS iframe blockers
+                try {
+                    const baseUrl = (window.ORBIT_CONFIG && window.ORBIT_CONFIG.API_BASE_URL) || 'http://localhost:8000';
+                    const res = await fetch(`${baseUrl}/proxy-html?url=${encodeURIComponent(job.result.viewer_url)}`);
+                    if (res.ok) {
+                        const htmlString = await res.text();
+                        frame.srcdoc = htmlString;
+                    } else {
+                        frame.src = job.result.viewer_url;
+                    }
+                } catch (e) {
+                    frame.src = job.result.viewer_url;
+                }
+            } else {
+                frame.srcdoc = `<div style="font-family:sans-serif; padding: 20px; text-align: center; color: #666;">Map results are currently unavailable.</div>`;
+            }
         } else {
-            frame.src = 'about:blank';
-        }
-        
-        if (job.result?.metrics) {
-            const data = job.result.metrics;
-            const acc = ((data.accuracy || 0) * 100).toFixed(1);
-            const kappa = (data.kappa || 0).toFixed(2);
-            const nTrees = data.training_parameters?.number_of_trees || '100';
+            if (metricsContainer) metricsContainer.style.display = 'flex';
+            if (job.result?.report_html_url) {
+                // Fetch the HTML securely via our backend proxy
+                try {
+                    const baseUrl = (window.ORBIT_CONFIG && window.ORBIT_CONFIG.API_BASE_URL) || 'http://localhost:8000';
+                    const res = await fetch(`${baseUrl}/proxy-html?url=${encodeURIComponent(job.result.report_html_url)}`);
+                    if (res.ok) {
+                        const htmlString = await res.text();
+                        frame.srcdoc = htmlString;
+                    } else {
+                        frame.src = job.result.report_html_url;
+                    }
+                } catch (e) {
+                    frame.src = job.result.report_html_url;
+                }
+            } else {
+                frame.srcdoc = `<div style="font-family:sans-serif; padding: 20px; text-align: center; color: #666;">Analytics report is currently unavailable.</div>`;
+            }
             
-            document.getElementById('nlc-analytics-acc').textContent = `${acc}%`;
-            document.getElementById('nlc-analytics-kappa').textContent = kappa;
-            document.getElementById('nlc-analytics-trees').textContent = nTrees;
+            // Populate metrics
+            if (job.result?.metrics) {
+                const acc = job.result.metrics['Overall Accuracy'] || job.result.metrics['Accuracy'];
+                const kappa = job.result.metrics['Kappa'];
+                const nTrees = job.result.metrics['NumberOfTrees'];
+                
+                if (acc) document.getElementById('nlc-analytics-acc').textContent = (acc * 100).toFixed(1) + '%';
+                if (kappa) document.getElementById('nlc-analytics-kappa').textContent = (kappa * 100).toFixed(1) + '%';
+                if (nTrees) document.getElementById('nlc-analytics-trees').textContent = nTrees;
+            }
         }
-
-        nlcPanel.style.display = 'flex';
         
         // Hook up panel buttons if not already hooked
-        if (!nlcPanel.dataset.hooked) {
+        if (!nlcAnalyticsPanel.dataset.hooked) {
             document.getElementById('nlc-analytics-panel-close').onclick = () => {
-                nlcPanel.style.display = 'none';
+                nlcAnalyticsPanel.style.display = 'none';
             };
             document.getElementById('nlc-analytics-panel-minimize').onclick = () => {
-                nlcPanel.style.display = 'none';
+                nlcAnalyticsPanel.style.display = 'none';
                 document.getElementById('nlc-analytics-panel-restore').style.display = 'flex';
             };
             document.getElementById('nlc-analytics-panel-restore').onclick = () => {
                 document.getElementById('nlc-analytics-panel-restore').style.display = 'none';
-                nlcPanel.style.display = 'flex';
+                nlcAnalyticsPanel.style.display = 'flex';
             };
-            nlcPanel.dataset.hooked = 'true';
+            nlcAnalyticsPanel.dataset.hooked = 'true';
         }
     },
 
@@ -840,6 +899,7 @@ const Jobs = {
 
     _formatIndicatorName(job) {
         if (job.indicator_id === 'NLC') return 'National Land Cover';
+        if (job.indicator_id === 'TASKING') return 'Space for Time Tasking';
         // Fallback for older jobs before the fix
         if (!job.indicator_id && (job.result?.country === 'pc655-gcpa-unops-geo-is' || job.request?.classifier_type)) return 'National Land Cover';
         if (!job.indicator_id) return 'Unknown Indicator';

@@ -34,6 +34,23 @@ const SDG = {
             this.activeIndicator = indicatorId;
             btnElement.classList.add('active');
             
+            // Close NLC panel if open
+            const nlcPanel = document.getElementById('nlc-panel');
+            if (nlcPanel) nlcPanel.style.display = 'none';
+            const btnNlc = document.getElementById('btn-nlc');
+            if (btnNlc) btnNlc.classList.remove('active');
+            
+            // Hide analytics panel if open
+            const nlcAnalyticsPanel = document.getElementById('nlc-analytics-panel');
+            if (nlcAnalyticsPanel) nlcAnalyticsPanel.style.display = 'none';
+            const nlcAnalyticsRestore = document.getElementById('nlc-analytics-panel-restore');
+            if (nlcAnalyticsRestore) nlcAnalyticsRestore.style.display = 'none';
+            
+            // Navigate to map view if we are on a different page (like jobs)
+            if (typeof App !== 'undefined' && App.navigate) {
+                App.navigate('map');
+            }
+            
             const plugin = this.plugins[this.activeIndicator];
             if (plugin) {
                 plugin.onPanelOpened();
@@ -41,6 +58,10 @@ const SDG = {
                 // If a country is already selected, trigger the data load for this new SDG
                 if (typeof App !== 'undefined' && App.currentCountry) {
                     plugin.onCountrySelected(App.currentCountry);
+                }
+            } else {
+                if (typeof Toast !== 'undefined') {
+                    Toast.show(`SDG ${this.activeIndicator} is currently under development.`, 'info');
                 }
             }
         }

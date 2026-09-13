@@ -59,7 +59,32 @@ export const UI = {
     },
 
     openPanel() {
-        if (this.panel) this.panel.style.display = 'block';
+        const titleEl = document.getElementById('sdg-panel-title');
+        const subEl = document.getElementById('sdg-panel-subtitle');
+        const noteEl = document.getElementById('sdg-panel-note');
+        const iconEl = document.getElementById('sdg-panel-icon');
+        
+        if (titleEl) titleEl.textContent = 'SDG 11.3.1';
+        if (subEl) subEl.textContent = 'Ratio of land consumption to population growth';
+        if (noteEl) noteEl.textContent = '* A minimum 4-year span is required for SDG 11.3.1 (e.g., 2019 to 2022).';
+        
+        if (iconEl) {
+            iconEl.setAttribute('data-lucide', 'building');
+            if (window.lucide) {
+                iconEl.innerHTML = '';
+                window.lucide.createIcons({
+                    icons: window.lucide.icons,
+                    nameAttr: 'data-lucide'
+                });
+            }
+        }
+        
+        const mainBtn = document.getElementById('btn-submit-sdg-job');
+        const mockBtn = document.getElementById('btn-submit-sdg-mock');
+        if (mainBtn) mainBtn.style.display = 'flex';
+        if (mockBtn) mockBtn.style.display = 'none';
+
+        if (this.panel) this.panel.style.display = 'flex'; // Changed to flex for proper layout
     },
 
     closePanel() {

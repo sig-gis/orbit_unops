@@ -1,6 +1,6 @@
 import { State } from './state.js';
 import { parseCSVHeaders } from './utils/csv.js';
-import { submitLandCoverJob } from './api.js';
+import { submitLandCoverJob, fetchGeeColumns, fetchGcsColumns } from './api.js';
 
 export const UI = {
     panel: null,
@@ -20,17 +20,6 @@ export const UI = {
             minBtn.addEventListener('click', () => {
                 if (this.panel) this.panel.style.display = 'none';
             });
-        }
-
-        const btnDemo = document.getElementById('nlc-btn-demo');
-        const btnCustom = document.getElementById('nlc-btn-custom');
-        
-        if (btnDemo) {
-            btnDemo.addEventListener('click', () => this.handleDemoClick());
-        }
-        
-        if (btnCustom) {
-            btnCustom.addEventListener('click', () => this.handleCustomClick());
         }
 
         const fileInput = document.getElementById('nlc-file-upload');
@@ -54,6 +43,23 @@ export const UI = {
         document.querySelectorAll('button[data-nlc-source]').forEach(btn => {
             btn.addEventListener('click', (e) => this.handleSourceTabClick(e));
         });
+
+        // Setup Blur Listeners for Auto-Fetching Columns
+        const geeInput = document.getElementById('nlc-gee-asset');
+        if (geeInput) {
+            geeInput.addEventListener('blur', (e) => this.handleGeeBlur(e));
+        }
+        
+        const gcsInput = document.getElementById('nlc-gcs-uri');
+        if (gcsInput) {
+            gcsInput.addEventListener('blur', (e) => this.handleGcsBlur(e));
+        }
+
+        // Initialize default tab state
+        const activeTabBtn = document.querySelector('button[data-nlc-source].active');
+        if (activeTabBtn) {
+            this.handleSourceTabClick({ target: activeTabBtn });
+        }
     },
 
     openPanel() {
@@ -62,53 +68,8 @@ export const UI = {
 
     closePanel() {
         if (this.panel) this.panel.style.display = 'none';
-    },
-
-    handleDemoClick() {
-        State.isDemoMode = true;
-        document.getElementById('nlc-form-container').style.display = 'block';
-        document.getElementById('nlc-demo-info').style.display = 'block';
-        document.getElementById('nlc-upload-section').style.display = 'none';
-        document.getElementById('nlc-mapping-section').style.display = 'none';
-        
-        // Auto-fill parameters and disable inputs for Demo mode
-        const thresholdInput = document.getElementById('nlc-target-threshold');
-        const treesInput = document.getElementById('nlc-trees');
-        
-        thresholdInput.value = State.demoParams.target_threshold;
-        thresholdInput.disabled = true;
-        
-        treesInput.value = State.demoParams.number_of_trees;
-        treesInput.disabled = true;
-        
-        // Visual feedback
-        document.getElementById('nlc-btn-demo').style.background = 'var(--bg-tertiary)';
-        document.getElementById('nlc-btn-demo').style.border = '1px solid var(--brand-secondary)';
-        document.getElementById('nlc-btn-custom').style.background = '';
-        document.getElementById('nlc-btn-custom').style.border = '';
-    },
-
-    handleCustomClick() {
-        State.isDemoMode = false;
-        document.getElementById('nlc-form-container').style.display = 'block';
-        document.getElementById('nlc-demo-info').style.display = 'none';
-        document.getElementById('nlc-upload-section').style.display = 'block';
-        
-        // Enable inputs for Custom mode
-        document.getElementById('nlc-target-threshold').disabled = false;
-        document.getElementById('nlc-trees').disabled = false;
-
-        // Visual feedback
-        document.getElementById('nlc-btn-custom').style.background = 'var(--bg-tertiary)';
-        document.getElementById('nlc-btn-custom').style.border = '1px solid var(--brand-secondary)';
-        document.getElementById('nlc-btn-demo').style.background = '';
-        document.getElementById('nlc-btn-demo').style.border = '';
-        
-        // Initialize default tab state
-        const activeTabBtn = document.querySelector('button[data-nlc-source].active');
-        if (activeTabBtn) {
-            this.handleSourceTabClick({ target: activeTabBtn });
-        }
+        const btnNlc = document.getElementById('btn-nlc');
+        if (btnNlc) btnNlc.classList.remove('active');
     },
 
     handleSourceTabClick(event) {
@@ -128,24 +89,15 @@ export const UI = {
         // Show correct container
         document.getElementById(`nlc-source-${source}-container`).style.display = 'block';
         
-        // Handle mapping section
+        // Only show mapping if we have headers
         const mappingSection = document.getElementById('nlc-mapping-section');
         const mappingDropdowns = document.getElementById('nlc-mapping-dropdowns');
-        const mappingInputs = document.getElementById('nlc-mapping-inputs');
         
-        if (source === 'csv') {
-            if (State.file && State.headers.length > 0) {
-                mappingSection.style.display = 'block';
-                mappingDropdowns.style.display = 'flex';
-                mappingInputs.style.display = 'none';
-            } else {
-                mappingSection.style.display = 'none';
-            }
-        } else {
-            // For GEE/GCS, always show manual inputs
+        if (State.headers && State.headers.length > 0) {
             mappingSection.style.display = 'block';
-            mappingDropdowns.style.display = 'none';
-            mappingInputs.style.display = 'flex';
+            mappingDropdowns.style.display = 'flex';
+        } else {
+            mappingSection.style.display = 'none';
         }
     },
 
@@ -160,10 +112,66 @@ export const UI = {
             this.populateMappingDropdowns(headers);
             document.getElementById('nlc-mapping-section').style.display = 'block';
             document.getElementById('nlc-mapping-dropdowns').style.display = 'flex';
-            document.getElementById('nlc-mapping-inputs').style.display = 'none';
         } catch (error) {
             if (typeof Toast !== 'undefined') Toast.show('Failed to parse CSV headers', 'error');
             console.error(error);
+        }
+    },
+
+    async handleGeeBlur(event) {
+        const assetId = event.target.value.trim();
+        if (!assetId) return;
+        
+        try {
+            this.setMappingLoading(true);
+            const data = await fetchGeeColumns(assetId);
+            State.headers = data.columns;
+            this.populateMappingDropdowns(data.columns);
+            document.getElementById('nlc-mapping-section').style.display = 'block';
+            document.getElementById('nlc-mapping-dropdowns').style.display = 'flex';
+        } catch (error) {
+            if (typeof Toast !== 'undefined') Toast.show('Failed to load GEE columns', 'error');
+            console.error(error);
+        } finally {
+            this.setMappingLoading(false);
+        }
+    },
+
+    async handleGcsBlur(event) {
+        const gcsUri = event.target.value.trim();
+        if (!gcsUri) return;
+        
+        try {
+            this.setMappingLoading(true);
+            const data = await fetchGcsColumns(gcsUri);
+            State.headers = data.columns;
+            this.populateMappingDropdowns(data.columns);
+            document.getElementById('nlc-mapping-section').style.display = 'block';
+            document.getElementById('nlc-mapping-dropdowns').style.display = 'flex';
+        } catch (error) {
+            if (typeof Toast !== 'undefined') Toast.show('Failed to load GCS columns', 'error');
+            console.error(error);
+        } finally {
+            this.setMappingLoading(false);
+        }
+    },
+
+    setMappingLoading(isLoading) {
+        const mapLat = document.getElementById('nlc-map-lat');
+        const mapLon = document.getElementById('nlc-map-lon');
+        const mapTarget = document.getElementById('nlc-map-target');
+        
+        if (isLoading) {
+            document.getElementById('nlc-mapping-section').style.display = 'block';
+            document.getElementById('nlc-mapping-dropdowns').style.display = 'flex';
+            const html = '<option>Loading...</option>';
+            mapLat.innerHTML = html; mapLat.disabled = true;
+            mapLon.innerHTML = html; mapLon.disabled = true;
+            mapTarget.innerHTML = html; mapTarget.disabled = true;
+        } else {
+            mapLat.disabled = false;
+            mapLon.disabled = false;
+            mapTarget.disabled = false;
         }
     },
 
@@ -179,7 +187,6 @@ export const UI = {
         mapLon.innerHTML = optionsHtml;
         mapTarget.innerHTML = optionsHtml;
 
-        // Try to auto-select if headers match common names
         const findMatch = (terms) => headers.find(h => terms.includes(h.toLowerCase()));
         
         const latMatch = findMatch(['lat', 'latitude', 'y']);
@@ -194,57 +201,40 @@ export const UI = {
 
     async submitJob() {
         const btn = document.getElementById('btn-submit-nlc-job');
+        const countryNameInput = document.getElementById('nlc-country-name');
+        
+        if (!countryNameInput.value.trim()) {
+            if (typeof Toast !== 'undefined') Toast.show('Please enter a Country Name', 'error');
+            return;
+        }
+
         btn.innerHTML = '<span class="processing-dots"><span></span><span></span><span></span></span> Submitting...';
 
         try {
-            let payload = {};
+            let payload = {
+                ...State.taskingDefaults,
+                aoi_name: countryNameInput.value.trim(),
+                run_name: "custom_run_" + Date.now(),
+                latitude_column: document.getElementById('nlc-map-lat').value,
+                longitude_column: document.getElementById('nlc-map-lon').value,
+                target_column: document.getElementById('nlc-map-target').value
+            };
 
-            if (State.isDemoMode) {
-                payload = { ...State.demoParams };
-                // Override with user edits if they changed the input fields
-                payload.target_threshold = parseFloat(document.getElementById('nlc-target-threshold').value);
-                payload.number_of_trees = parseInt(document.getElementById('nlc-trees').value);
-            } else {
-                // Extract parameters based on source type
-                let latCol, lonCol, targetCol, inputAssetId;
-
-                if (State.customSourceType === 'csv') {
-                    if (!State.file) throw new Error("Please upload a CSV file first.");
-                    latCol = document.getElementById('nlc-map-lat').value;
-                    lonCol = document.getElementById('nlc-map-lon').value;
-                    targetCol = document.getElementById('nlc-map-target').value;
-                    inputAssetId = "projects/pc655-gcpa-unops-geo-is/assets/custom_upload";
-                } else if (State.customSourceType === 'gee') {
-                    inputAssetId = document.getElementById('nlc-gee-asset').value.trim();
-                    if (!inputAssetId) throw new Error("Please enter a GEE Asset ID.");
-                    latCol = document.getElementById('nlc-input-lat').value.trim() || "lat";
-                    lonCol = document.getElementById('nlc-input-lon').value.trim() || "lon";
-                    targetCol = document.getElementById('nlc-input-target').value.trim() || "target";
-                } else if (State.customSourceType === 'gcs') {
-                    const gcsUri = document.getElementById('nlc-gcs-uri').value.trim();
-                    if (!gcsUri) throw new Error("Please enter a GCS URI.");
-                    inputAssetId = gcsUri; // Store GCS URI in the asset ID field for now
-                    latCol = document.getElementById('nlc-input-lat').value.trim() || "lat";
-                    lonCol = document.getElementById('nlc-input-lon').value.trim() || "lon";
-                    targetCol = document.getElementById('nlc-input-target').value.trim() || "target";
-                }
-                
-                payload = {
-                    ...State.demoParams, // Base defaults
-                    run_name: "custom_run_" + Date.now(),
-                    longitude_column: lonCol,
-                    latitude_column: latCol,
-                    target_column: targetCol,
-                    target_threshold: parseFloat(document.getElementById('nlc-target-threshold').value),
-                    number_of_trees: parseInt(document.getElementById('nlc-trees').value),
-                    input_asset_id: inputAssetId
-                };
+            if (State.customSourceType === 'csv') {
+                if (!State.file) throw new Error("Please upload a CSV file first.");
+            } else if (State.customSourceType === 'gee') {
+                payload.input_asset_id = document.getElementById('nlc-gee-asset').value.trim();
+                if (!payload.input_asset_id) throw new Error("Please enter a GEE Asset ID.");
+            } else if (State.customSourceType === 'gcs') {
+                const gcsUri = document.getElementById('nlc-gcs-uri').value.trim();
+                if (!gcsUri) throw new Error("Please enter a GCS URI.");
+                payload.csv_url = gcsUri;
             }
-
-            const response = await submitLandCoverJob(payload);
+            
+            await submitLandCoverJob(payload);
             
             if (typeof Toast !== 'undefined') {
-                Toast.show('Land Cover job submitted successfully', 'success');
+                Toast.show('Land Map Tasking job submitted successfully', 'success');
             }
             
             this.closePanel();
@@ -255,11 +245,9 @@ export const UI = {
             if (typeof Jobs !== 'undefined' && Jobs.loadJobs) {
                 Jobs.loadJobs();
             }
-
         } catch (error) {
-            if (typeof Toast !== 'undefined') {
-                Toast.show(error.message, 'error');
-            }
+            console.error('Job submission error:', error);
+            if (typeof Toast !== 'undefined') Toast.show(error.message, 'error');
         } finally {
             btn.innerHTML = '<i data-lucide="cpu" class="icon"></i> Run Classification';
             if (typeof lucide !== 'undefined') lucide.createIcons();

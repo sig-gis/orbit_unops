@@ -245,6 +245,8 @@ class ExportStatusResponse(BaseModel):
     job_id: str
     taskId: Optional[str] = None
     fileId: Optional[str] = None
+    indicator_id: Optional[str] = None
+    aoi_id: Optional[str] = None
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
     created_at: str
     updated_at: str
@@ -267,8 +269,8 @@ class FileDeleteResponse(BaseModel):
 app = FastAPI(title="UNOPS Export API", version="1.0.0")
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
 
-from pipeline.features.national_land_cover.routers import land_cover
-app.include_router(land_cover.router, prefix="/api/land-cover", tags=["Land Cover"])
+from pipeline.features.space_for_time_tasking.routers import tasking
+app.include_router(tasking.router)
 
 @app.exception_handler(rio_tiler.errors.TileOutsideBounds)
 async def tile_outside_bounds_handler(request: Request, exc: Exception):
@@ -902,4 +904,34 @@ def proxy_csv(url: str):
         with urllib.request.urlopen(req) as response:
             return Response(content=response.read(), media_type="text/csv")
     except Exception as e:
+        raise HTTPException(status_code=404, detail=f"File not found or failed to fetch: {str(e)}")
+
+@app.get("/proxy-html")
+def proxy_html(url: str):
+    """Proxy endpoint to securely fetch HTML reports from private GCS buckets using backend credentials."""
+    if not url.startswith("https://storage.googleapis.com/"):
+        raise HTTPException(status_code=400, detail="Only storage.googleapis.com URLs are allowed")
+    try:
+        # Parse the bucket and blob name from the URL
+        # Format: https://storage.googleapis.com/bucket-name/blob-name...
+        path_parts = url.replace("https://storage.googleapis.com/", "").split("/", 1)
+        if len(path_parts) != 2:
+            raise ValueError("Invalid GCS URL format")
+        
+        bucket_name, blob_name = path_parts
+        
+        from google.cloud import storage
+        client = _get_storage_client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        
+        if not blob.exists():
+            raise FileNotFoundError(f"Blob {blob_name} does not exist in bucket {bucket_name}")
+            
+        content = blob.download_as_bytes()
+        return Response(content=content, media_type="text/html; charset=utf-8")
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=404, detail=f"File not found or failed to fetch: {str(e)}")
