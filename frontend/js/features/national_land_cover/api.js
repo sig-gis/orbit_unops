@@ -42,12 +42,10 @@ export const submitLandCoverJob = async (payload) => {
     try {
         const baseUrl = (window.ORBIT_CONFIG && window.ORBIT_CONFIG.API_BASE_URL) || 'http://localhost:8000';
         
-        // If the user selected CSV, we must actually upload the file first to get a real GCS URI
+        // For the demo, we are skipping the actual CSV upload to GCS 
+        // because we injected the hardcoded input_asset_id in ui.js instead.
         if (State.customSourceType === 'csv' && State.file) {
-            const uploadRes = await uploadCSV(State.file);
-            payload.csv_url = uploadRes.gcs_uri;
-            // Ensure no invalid input_asset_id is sent if it was previously set
-            delete payload.input_asset_id;
+            delete payload.csv_url; // Ensure csv_url is not sent
         }
 
         const response = await fetch(`${baseUrl}/api/tasking/run`, {

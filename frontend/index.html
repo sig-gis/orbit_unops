@@ -263,33 +263,42 @@
                 </button>
             </div>
 
+            <!-- Minimized NLC Tasking Panel Restore Button -->
+            <button id="nlc-panel-restore"
+                style="display:none; position: absolute; right: 20px; top: 20px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 0.75rem; cursor: pointer; color: var(--brand-secondary); align-items:center; gap:0.5rem;">
+                <i data-lucide="map" class="icon"></i>
+                <span style="font-weight:600; font-size:0.9rem;">Tasking Panel</span>
+            </button>
+
             <!-- National Land Map Tasking Panel -->
             <div class="expansion-panel" id="nlc-panel"
-                style="display:none; position: absolute; right: 20px; top: 20px; bottom: 20px; width: 400px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border-left: 4px solid var(--brand-secondary); padding: 1.5rem; overflow-y: auto; flex-direction: column;">
-                <div class="expansion-header">
-                    <div class="expansion-title">
-                        <i data-lucide="map" class="icon" style="color:var(--brand-secondary)"></i>
-                        <h3>National Land Map Tasking</h3>
+                style="display:none; position: absolute; right: 20px; top: 20px; bottom: 20px; width: 400px; z-index: 1000; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border-left: 4px solid var(--brand-secondary); overflow-y: auto; flex-direction: column;">
+                
+                <div style="position: sticky; top: 0; background: var(--bg-secondary); z-index: 10; padding: 1.5rem 1.5rem 1rem 1.5rem; border-bottom: 1px solid var(--border-color);">
+                    <div class="expansion-header">
+                        <div class="expansion-title">
+                            <i data-lucide="map" class="icon" style="color:var(--brand-secondary)"></i>
+                            <h3>National Land Map Tasking</h3>
+                        </div>
+                        <div style="display:flex; gap:0.5rem; align-items:center;">
+                            <button class="expansion-close" id="nlc-panel-minimize" title="Minimize Panel"><i
+                                    data-lucide="minimize-2" class="icon sm"></i></button>
+                            <button class="expansion-close" id="nlc-panel-close" title="Close Panel"><i data-lucide="x"
+                                    class="icon"></i></button>
+                        </div>
                     </div>
-                    <div style="display:flex; gap:0.5rem; align-items:center;">
-                        <button class="expansion-close" id="nlc-panel-minimize" title="Minimize Panel"><i
-                                data-lucide="minimize-2" class="icon sm"></i></button>
-                        <button class="expansion-close" id="nlc-panel-close" title="Close Panel"><i data-lucide="x"
-                                class="icon"></i></button>
-                    </div>
+                    <div class="expansion-subtitle" style="margin-top: 5px;">Trigger Earth Engine Land Cover Classification</div>
                 </div>
-                <div class="expansion-subtitle">Trigger Earth Engine Land Cover Classification</div>
 
-                <div id="nlc-form-container" style="display:block; padding-top: 1rem;">
+                <div id="nlc-form-container" style="display:block; padding: 1rem 1.5rem 1.5rem 1.5rem;">
 
-                    <div style="margin-bottom: 1rem;">
-                        <label for="nlc-country-name" style="font-size: 0.85rem; font-weight: 600;">Country Name</label>
-                        <input type="text" id="nlc-country-name" class="form-input" placeholder="e.g. Ireland 2024"
-                            style="margin-top: 5px;">
+                    <div style="margin-bottom: 1rem; padding: 10px; background: var(--bg-primary); border-radius: 6px; border: 1px solid var(--border-light);">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Selected Country</div>
+                        <div id="nlc-country-name" style="font-size: 1rem; font-weight: 600; color: var(--brand-secondary); margin-top: 2px;">None (Select on map)</div>
                     </div>
 
                     <div id="nlc-upload-section" style="margin-bottom: 1rem;">
-                        <h4 style="margin-bottom: 10px; font-size: 0.85rem;">1. Data Source</h4>
+                        <h4 style="margin-bottom: 10px; font-size: 0.85rem;">1. Ground Truth Data Source</h4>
 
                         <div class="view-tabs"
                             style="margin-bottom: 10px; border-bottom: 1px solid var(--border-color); display: flex;">
@@ -343,7 +352,23 @@
                         </div>
                     </div>
 
-                    <button class="btn-primary full-width" id="btn-submit-nlc-job" style="margin-top: 1rem;">
+                    <div id="nlc-recommendations-section" style="display:none; margin-bottom: 1rem; padding: 10px; background: var(--bg-primary); border-radius: 6px; border: 1px solid var(--border-color);">
+                        <h4 style="margin-bottom: 10px; font-size: 0.85rem;"><i data-lucide="check-square" class="icon sm" style="color:var(--brand-secondary);"></i> Tasking Recommendations</h4>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main);">
+                            <span>Production Points:</span>
+                            <span id="nlc-rec-points" style="font-weight: 600;">0</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main); margin-top: 5px;">
+                            <span>Production Blocks:</span>
+                            <span id="nlc-rec-blocks" style="font-weight: 600;">0</span>
+                        </div>
+                    </div>
+
+                    <button class="btn-primary full-width" id="btn-load-nlc-data" style="margin-top: 1rem;">
+                        <i data-lucide="upload-cloud" class="icon"></i> Load Data
+                    </button>
+
+                    <button class="btn-primary full-width" id="btn-submit-nlc-job" style="margin-top: 1rem; display:none;">
                         <i data-lucide="cpu" class="icon"></i> Run Classification
                     </button>
                 </div>

@@ -16,3 +16,23 @@ export const parseCSVHeaders = (file) => {
         });
     });
 };
+
+export const parseCSVData = (file) => {
+    return new Promise((resolve, reject) => {
+        Papa.parse(file, {
+            header: true,
+            dynamicTyping: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                if (results.data) {
+                    resolve(results.data);
+                } else {
+                    reject(new Error("Could not parse data from CSV."));
+                }
+            },
+            error: function(error) {
+                reject(error);
+            }
+        });
+    });
+};
