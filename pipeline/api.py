@@ -780,7 +780,53 @@ def get_export(job_id: str, refresh_task_status: bool = True) -> ExportStatusRes
             pass
 
     with _jobs_lock:
-        job = _jobs[job_id]
+        import copy
+        job = copy.deepcopy(_jobs[job_id])
+
+    # Dynamic MapID Generation for chunked/large exports to ensure the map always loads
+    if job.get("status") == "completed" and job.get("result"):
+        result = job["result"]
+        if result.get("layers") and result.get("geotiff_file_name_prefix"):
+            try:
+                bucket_name = result.get("gcs_bucket") or os.getenv("GCS_BUCKET", "unops")
+                prefix = result.get("geotiff_file_name_prefix")
+                project = result.get("project")
+                
+                client = _get_storage_client()
+                bucket = client.bucket(bucket_name)
+                blobs = list(bucket.list_blobs(prefix=prefix))
+                tif_uris = [f"gs://{bucket_name}/{b.name}" for b in blobs if b.name.endswith(".tif")]
+                
+                if tif_uris:
+                    import ee
+                    initialize_ee(project=project)
+                    if len(tif_uris) == 1:
+                        output_image = ee.Image.loadGeoTIFF(tif_uris[0])
+                    else:
+                        images = [ee.Image.loadGeoTIFF(uri) for uri in tif_uris]
+                        output_image = ee.ImageCollection(images).mosaic()
+                        
+                    indicator_id = job.get("indicator_id") or job.get("request", {}).get("indicator_id")
+                    
+                    # Map colors matching the frontend colormap defaults
+                    palette = ['FF5722'] # default
+                    if indicator_id == "11.3.1": palette = ['FF5722']
+                    elif indicator_id == "15.1.1": palette = ['4CAF50']
+                    elif indicator_id == "6.6.1": palette = ['2196F3']
+                    elif indicator_id == "15.4.2": palette = ['795548']
+                    elif indicator_id == "15.3.1": palette = ['FFC107']
+                    elif indicator_id == "11.1.1": palette = ['F44336']
+                        
+                    # Select the first band and mask out 0 (nodata)
+                    band = output_image.select(0)
+                    masked_image = band.updateMask(band.neq(0))
+                    map_id_info = masked_image.getMapId({'min': 1, 'max': 1, 'palette': palette})
+                    
+                    for layer in result["layers"]:
+                        layer["tile_url"] = map_id_info["tile_fetcher"].url_format
+                        layer["is_cog"] = False
+            except Exception as e:
+                print(f"Warning: Failed to generate dynamic MapID for job {job_id}: {e}")
 
     return ExportStatusResponse(**job)
 

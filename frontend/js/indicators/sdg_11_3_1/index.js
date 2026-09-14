@@ -1,5 +1,5 @@
-import { UI } from './ui.js';
-import { Data } from './data.js';
+import { UI } from './ui.js?v=14Sep26-1';
+import { Data } from './data.js?v=14Sep26-1';
 
 const SDG1131Plugin = {
     init() {

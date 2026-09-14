@@ -538,9 +538,9 @@ const Jobs = {
                 <td>${this._stateBadge(job)}</td>
                 <td>${this._timeAgo(job.submitted_at)}</td>
                 <td>
-                    ${job.state === 'FAILED' && job.error ? 
-                        `<div style="color:var(--error); font-size: 0.75rem; max-width: 250px; white-space: normal; line-height: 1.2;" title="${this._translateError(job.error)}">${this._translateError(job.error)}</div>` 
-                      : (job.completed_at ? this._timeAgo(job.completed_at) : '—')}
+                    ${job.state === 'FAILED' && job.error ?
+                `<div style="color:var(--error); font-size: 0.75rem; max-width: 250px; white-space: normal; line-height: 1.2;" title="${this._translateError(job.error)}">${this._translateError(job.error)}</div>`
+                : (job.completed_at ? this._timeAgo(job.completed_at) : '—')}
                 </td>
                 <td class="job-actions">
                     ${job.state === 'COMPLETED' ? ((job.result?.html_chart || job.indicator_id === 'TASKING' || job.result?.viewer_url) ? `
@@ -705,7 +705,7 @@ const Jobs = {
                 const jobSummary = this._jobs.find(j => j.id === jobId);
                 if (jobSummary && jobSummary.aoi_name) {
                     const countryName = jobSummary.aoi_name;
-                    
+
                     // Automatically open the SDG panel for this job's indicator
                     if (typeof SDG !== 'undefined' && jobSummary.indicator_id) {
                         if (SDG.activeIndicator !== jobSummary.indicator_id) {
@@ -761,14 +761,14 @@ const Jobs = {
         if (typeof App !== 'undefined' && App.navigate) {
             App.navigate('map');
         }
-        
+
         // Ensure panels are managed correctly
         const nlcAnalyticsPanel = document.getElementById('nlc-analytics-panel');
         const sdgPanel = document.getElementById('sdg-panel');
         if (sdgPanel) sdgPanel.style.display = 'none';
         const nlcTaskingPanel = document.getElementById('nlc-panel');
         if (nlcTaskingPanel) nlcTaskingPanel.style.display = 'none';
-        
+
         if (!nlcAnalyticsPanel) return;
 
         // Zoom to Ireland (or standard AOI)
@@ -778,18 +778,18 @@ const Jobs = {
 
         const frame = document.getElementById('nlc-analytics-frame');
         const metricsContainer = document.getElementById('nlc-analytics-metrics');
-        
+
         // Update titles to include both the specific AOI name AND the feature name
         const aoiName = job.aoi_id || 'Job';
         const titleEl = document.getElementById('nlc-analytics-title');
         const restoreTextEl = document.getElementById('nlc-analytics-restore-text');
         if (titleEl) titleEl.textContent = `${aoiName} - National Land Cover Tasking`;
         if (restoreTextEl) restoreTextEl.textContent = `View ${aoiName} Tasking`;
-        
+
         // CRITICAL: Make the panel visible BEFORE writing to the iframe document,
         // otherwise Firefox/Chrome will discard the write or leave it blank.
         nlcAnalyticsPanel.style.display = 'flex';
-        
+
         // Show loading state while fetching
         frame.srcdoc = `
             <div style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: #666; margin: 0; background: #fafafa;">
@@ -798,7 +798,7 @@ const Jobs = {
                 <div style="font-size: 0.9rem; font-weight: 500;">Loading Analytics Report...</div>
             </div>
         `;
-        
+
         if (job.indicator_id === 'TASKING') {
             if (metricsContainer) metricsContainer.style.display = 'none';
             if (job.result?.viewer_url) {
@@ -841,19 +841,19 @@ const Jobs = {
             } else {
                 frame.srcdoc = `<div style="font-family:sans-serif; padding: 20px; text-align: center; color: #666;">Analytics report is currently unavailable.</div>`;
             }
-            
+
             // Populate metrics
             if (job.result?.metrics) {
                 const acc = job.result.metrics['Overall Accuracy'] || job.result.metrics['Accuracy'];
                 const kappa = job.result.metrics['Kappa'];
                 const nTrees = job.result.metrics['NumberOfTrees'];
-                
+
                 if (acc) document.getElementById('nlc-analytics-acc').textContent = (acc * 100).toFixed(1) + '%';
                 if (kappa) document.getElementById('nlc-analytics-kappa').textContent = (kappa * 100).toFixed(1) + '%';
                 if (nTrees) document.getElementById('nlc-analytics-trees').textContent = nTrees;
             }
         }
-        
+
         // Hook up panel buttons if not already hooked
         if (!nlcAnalyticsPanel.dataset.hooked) {
             document.getElementById('nlc-analytics-panel-close').onclick = () => {
@@ -872,13 +872,20 @@ const Jobs = {
     },
 
 
-    _viewJobLayers(job) {
+    async _viewJobLayers(jobRef) {
         // Switch to map view
         App.navigate('map');
 
         // Auto-select the AOI in the header to update stats and zoom
-        if (job.aoi_id) {
-            App.selectCountry(job.aoi_id);
+        if (jobRef.aoi_id) {
+            App.selectCountry(jobRef.aoi_id);
+        }
+        
+        let job = jobRef;
+        try {
+            job = await API.getJob(jobRef.id);
+        } catch(e) {
+            console.error("Failed to fetch full job info", e);
         }
 
         if (job.layers?.length) {
@@ -893,8 +900,8 @@ const Jobs = {
             Toast.show(`Loaded ${job.layers.length} layers from job`, 'success');
 
             if (typeof MapModule !== 'undefined' && MapModule.addLegend) {
-                const dateStr = (job.date_range_start && job.date_range_end) 
-                    ? `${job.date_range_start}-${job.date_range_end} Analysis` 
+                const dateStr = (job.date_range_start && job.date_range_end)
+                    ? `${job.date_range_start}-${job.date_range_end} Analysis`
                     : 'Analysis';
                 MapModule.addLegend('Urban Extent Raster', `Red areas represent classified built-up surfaces for ${dateStr}.`, '#E85C0E');
             }
@@ -945,14 +952,14 @@ const Jobs = {
     _translateError(errorMsg) {
         if (!errorMsg) return "Unknown error occurred";
         const msg = errorMsg.toLowerCase();
-        
+
         if (msg.includes("empty") || msg.includes("no data") || msg.includes("does not contain all the bands")) {
             return "Data is not available for this country during the selected time period. Please try a different year span.";
         }
         if (msg.includes("memory limit") || msg.includes("maxpixels") || msg.includes("user memory limit exceeded") || msg.includes("computation timed out")) {
             return "This country is too large to process over this many years. Please try selecting a shorter year span (e.g., 4 years).";
         }
-        return errorMsg; 
+        return errorMsg;
     },
 
     _fmtSize(bytes) {

@@ -1,0 +1,157 @@
+{
+  "job_id": "e196ca53-9b56-4a94-b297-c79d233319f7",
+  "taskId": "e196ca53-9b56-4a94-b297-c79d233319f7",
+  "fileId": "b973c5b1-ab5a-4863-a79a-842750b5acd4",
+  "indicator_id": null,
+  "aoi_id": null,
+  "status": "completed",
+  "created_at": "2026-09-13T14:14:12.800383+00:00",
+  "updated_at": "2026-09-14T00:48:33.078289",
+  "result": {
+    "country": "Tunisia",
+    "aoi_geojson": null,
+    "project": "damage-control-403117",
+    "training_year": 2020,
+    "year_start": 2018,
+    "year_end": 2021,
+    "threshold": 0.75,
+    "export_name": "urban_extent_tunisia_2018-2021",
+    "export_started": true,
+    "export_target": "gcs_tables",
+    "gcs_bucket": "unops",
+    "gcs_prefix": "exports/unops/b973c5b1-ab5a-4863-a79a-842750b5acd4",
+    "training_samples": 1413,
+    "validation_samples": 582,
+    "filtered_training_samples": 1413,
+    "metrics": {
+      "training_accuracy": 0.997169143665959,
+      "validation_accuracy": 0.8109965635738832,
+      "validation_kappa": 0.6204872843677752,
+      "training_confusion_matrix": [
+        [
+          716,
+          3
+        ],
+        [
+          1,
+          693
+        ]
+      ],
+      "validation_confusion_matrix": [
+        [
+          217,
+          60
+        ],
+        [
+          50,
+          255
+        ]
+      ]
+    },
+    "geotiff_file_name_prefix": "exports/unops/b973c5b1-ab5a-4863-a79a-842750b5acd4/urban_extent_tunisia_2018-2021_urban_extent",
+    "gcs_image_url": "gs://unops/exports/unops/b973c5b1-ab5a-4863-a79a-842750b5acd4/urban_extent_tunisia_2018-2021_urban_extent.tif",
+    "next_step": 2,
+    "task_ids": {
+      "classifier_export": "CNN524JIRE7GVGLRPJEGOD4I",
+      "prediction_stats": "5HJMI7ZWLBKIQJ45N6B3TZJO",
+      "urban_extent_geotiff": "HGCYGLM7EUB6EQR5TUO543Q3"
+    },
+    "task_states": {
+      "classifier_export": "COMPLETED"
+    },
+    "task_descriptions": {
+      "classifier_export": "urban_extent_tunisia_2018-2021_classifier_export"
+    },
+    "layers": [
+      {
+        "id": "urban_extent",
+        "name": "Urban Extent (2021)",
+        "tile_url": "/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=https://storage.googleapis.com/unops/exports/unops/b973c5b1-ab5a-4863-a79a-842750b5acd4/urban_extent_tunisia_2018-2021_urban_extent.tif&bidx=1&nodata=0&colormap=%7B%221%22:%22%23FF5722FF%22%7D",
+        "is_cog": true
+      }
+    ],
+    "fileId": "b973c5b1-ab5a-4863-a79a-842750b5acd4",
+    "ee_task_status": {
+      "classifier_export": {
+        "state": "COMPLETED",
+        "description": "urban_extent_tunisia_2018-2021_classifier_export",
+        "priority": 100,
+        "creation_timestamp_ms": 1789308864338,
+        "update_timestamp_ms": 1789308903453,
+        "start_timestamp_ms": 1789308866640,
+        "task_type": "EXPORT_CLASSIFIER",
+        "destination_uris": [
+          "https://code.earthengine.google.com/?asset=projects/damage-control-403117/assets/urban_extent_tunisia_2018-2021_classifier"
+        ],
+        "attempt": 1,
+        "batch_eecu_usage_seconds": 3287.3349609375,
+        "id": "CNN524JIRE7GVGLRPJEGOD4I",
+        "name": "projects/damage-control-403117/operations/CNN524JIRE7GVGLRPJEGOD4I"
+      },
+      "prediction_stats": {
+        "state": "COMPLETED",
+        "description": "urban_extent_tunisia_2018-2021_prediction_stats",
+        "priority": 100,
+        "creation_timestamp_ms": 1789308975342,
+        "update_timestamp_ms": 1789308981708,
+        "start_timestamp_ms": 1789308977985,
+        "task_type": "EXPORT_FEATURES",
+        "destination_uris": [
+          "https://console.developers.google.com/storage/browser/unops/exports/unops/b973c5b1-ab5a-4863-a79a-842750b5acd4/"
+        ],
+        "attempt": 1,
+        "batch_eecu_usage_seconds": 1.5474724769592285,
+        "id": "5HJMI7ZWLBKIQJ45N6B3TZJO",
+        "name": "projects/damage-control-403117/operations/5HJMI7ZWLBKIQJ45N6B3TZJO"
+      },
+      "urban_extent_geotiff": {
+        "state": "COMPLETED",
+        "description": "urban_extent_tunisia_2018-2021_urban_extent_geotiff",
+        "priority": 100,
+        "creation_timestamp_ms": 1789308978506,
+        "update_timestamp_ms": 1789314150435,
+        "start_timestamp_ms": 1789308980755,
+        "task_type": "EXPORT_IMAGE",
+        "destination_uris": [
+          "https://console.developers.google.com/storage/browser/unops/exports/unops/b973c5b1-ab5a-4863-a79a-842750b5acd4/"
+        ],
+        "attempt": 1,
+        "batch_eecu_usage_seconds": 1101020.25,
+        "id": "HGCYGLM7EUB6EQR5TUO543Q3",
+        "name": "projects/damage-control-403117/operations/HGCYGLM7EUB6EQR5TUO543Q3"
+      }
+    }
+  },
+  "error": null,
+  "request": {
+    "indicator_id": "11.3.1",
+    "version": null,
+    "model_asset_id": null,
+    "country": "Tunisia",
+    "aoi_geojson": null,
+    "map_year": 2020,
+    "sample_points": null,
+    "sample_scale": null,
+    "embedding_scale": null,
+    "threshold": null,
+    "trees": null,
+    "seed": null,
+    "project": null,
+    "year_start": 2018,
+    "year_end": 2021,
+    "export_name": null,
+    "start_date": null,
+    "end_date": null,
+    "resolution": null,
+    "priority": null,
+    "data_sources": null,
+    "export_formats": [
+      "csv",
+      "geotiff"
+    ],
+    "population_sources": null,
+    "urban_methods": null,
+    "span_target": 3,
+    "wb_population_dict": null
+  }
+}

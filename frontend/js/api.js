@@ -27,23 +27,23 @@ const API = {
         }
     },
 
-    get(path)        { return this._fetch('GET', path); },
+    get(path) { return this._fetch('GET', path); },
     post(path, body) { return this._fetch('POST', path, body); },
-    del(path)        { return this._fetch('DELETE', path); },
+    del(path) { return this._fetch('DELETE', path); },
 
     // ── Auth ──
     login(email, password) { return Promise.resolve({ access_token: "mock", user: Auth.user }); },
-    getMe()                { return Promise.resolve(Auth.user); },
+    getMe() { return Promise.resolve(Auth.user); },
 
     // ── AOIs ──
-    async listAOIs() { 
+    async listAOIs() {
         return [
             { id: "aoi-dublin-tiny", name: "Dublin City Center (Tiny Test Area)", area_km2: 2.5, geometry: { type: "Polygon", coordinates: [[[-6.27, 53.34], [-6.25, 53.34], [-6.25, 53.35], [-6.27, 53.35], [-6.27, 53.34]]] } },
             { id: "aoi-ireland", name: "Ireland (SDG 11.3.1 Demo)", area_km2: 70273, geometry: { type: "Polygon", coordinates: [[[-10, 51], [-5, 51], [-5, 55], [-10, 55], [-10, 51]]] } },
             { id: "aoi-kabul", name: "Kabul, Afghanistan", area_km2: 275, geometry: { type: "Polygon", coordinates: [[[68.9, 34.4], [69.3, 34.4], [69.3, 34.6], [68.9, 34.6], [68.9, 34.4]]] } }
-        ]; 
+        ];
     },
-    
+
     // ── Jobs ──
     async listIndicators() {
         return this.get('/indicators');
@@ -60,7 +60,7 @@ const API = {
         }
     },
 
-    async getJob(id) { 
+    async getJob(id) {
         const data = await this.get(`/exports/${id}`);
         return this._mapSdkJobToUiJob(data);
     },
@@ -74,7 +74,7 @@ const API = {
         return this.delete(`/exports/${id}`);
     },
 
-    async getJobDownloads(fileId) { 
+    async getJobDownloads(fileId) {
         if (!fileId) return [];
         const data = await this.get(`/download-links/${fileId}`);
         return data.files || [];
@@ -106,7 +106,7 @@ const API = {
 
         const res = await this.post('/exports', payload);
         console.log("4. Response from Backend:", res);
-        
+
         // Save job ID to local storage so listJobs can find it
         const savedIds = JSON.parse(localStorage.getItem('orbit_jobs') || '[]');
         savedIds.push(res.job_id);
@@ -139,30 +139,33 @@ const API = {
             date_range_start: sdkData.result?.year_start,
             date_range_end: sdkData.result?.year_end,
             results_data: sdkData.result ? {
-                "population_change_pct": "Completed", 
+                "population_change_pct": "Completed",
                 "land_consumption_pct": "Check Downloads"
             } : null,
             result: sdkData.result || null,
             layers: (sdkData.result?.layers || []).map(layer => {
-                // If the layer is already marked as a COG URL, just prepend the base URL
+                // If the layer is already marked as a COG URL, prepend the base URL
                 if (layer.is_cog) {
                     layer.tile_url = `${this.baseUrl}${layer.tile_url}`;
                 } 
+                // If the tile_url is already an absolute EE MapID URL, use it directly
+                else if (layer.tile_url && layer.tile_url.startsWith('http')) {
+                    // It's a fresh dynamic EE MapID, keep it as is
+                }
                 // Legacy fallback: if it's an old EE MapID but we have the GCS
                 else if (sdkData.result?.geotiff_file_name_prefix) {
                     // Fallback for old jobs that don't have the explicit TiTiler URL
                     const bucket = sdkData.file_details?.bucket || "unops";
                     const prefix = sdkData.result.geotiff_file_name_prefix;
-                    layer.tile_url = `${this.baseUrl}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=https://storage.googleapis.com/${bucket}/${prefix}.tif&bidx=1&nodata=0&colormap=%7B"1":"%23FF5722FF"%7D`;
-                    // layer.tile_url = `${this.baseUrl}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=https://storage.googleapis.com/${bucket}/${prefix}.tif&bidx=1&nodata=0&colormap=%7B%221%22%3A%22%23FF5722FF%22%7D`;
+                    layer.tile_url = `${this.baseUrl}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=https://storage.googleapis.com/${bucket}/${prefix}.tif&bidx=1&nodata=0&colormap=%7B%221%22%3A%22%23FF5722FF%22%7D`;
                 }
                 return layer;
             })
         };
     },
 
-    approveJob(id)   { return Promise.resolve(); }, // Auto-approved in POC
-    async cancelJob(id) { 
+    approveJob(id) { return Promise.resolve(); }, // Auto-approved in POC
+    async cancelJob(id) {
         const data = await this.post(`/exports/${id}/cancel`, {});
         return this._mapSdkJobToUiJob(data);
     },

@@ -1,5 +1,5 @@
-import { UI } from './ui.js';
-import { Charts } from './charts.js';
+import { UI } from './ui.js?v=14Sep26-1';
+import { Charts } from './charts.js?v=14Sep26-1';
 
 const Data = {
     async fetchAndVisualizeData(countryName) {
@@ -8,15 +8,21 @@ const Data = {
         UI.setLoading(countryName);
         try {
             const jobs = await API.listJobs();
-            const countryJobs = jobs.filter(j => 
-                j.aoi_name === countryName && 
-                j.indicator_id === "11.3.1" && 
+            const countryJobs = jobs.filter(j =>
+                j.aoi_name === countryName &&
+                j.indicator_id === "11.3.1" &&
                 j.state === "COMPLETED"
             );
-            
+
             if (countryJobs.length > 0) {
-                // Pick the most recent one (API.listJobs returns sorted by submitted_at DESC)
-                this.loadJobData(countryJobs[0], countryName, countryJobs);
+                try {
+                    // Fetch the detail of the specific job to get dynamic map IDs
+                    const jobDetail = await window.API.getJob(countryJobs[0].id);
+                    this.loadJobData(jobDetail, countryName, countryJobs);
+                } catch(e) {
+                    console.error("Failed to fetch specific job", e);
+                    this.loadJobData(countryJobs[0], countryName, countryJobs);
+                }
             } else {
                 UI.setEmpty(`No completed analysis found for ${countryName}. Use the "Run New Analysis" button above to generate one.`);
             }
@@ -46,7 +52,7 @@ const Data = {
         try {
             const fileId = job.fileId || job.id;
             const downloads = await API.getJobDownloads(fileId);
-            
+
             const getCsvUrl = (suffix) => {
                 const match = downloads.find(d => d.name.endsWith(suffix));
                 return match ? match.url : null;
@@ -82,14 +88,14 @@ const Data = {
         // Filter and deduplicate
         const validAnnual = Array.from(
             new Map(annualData.filter(d => d.window !== undefined && d.LCR !== undefined && d.PGR !== undefined)
-            .map(d => [d.window, d])).values()
+                .map(d => [d.window, d])).values()
         );
-        
+
         const validArea = Array.from(
             new Map(areaData.filter(d => d.year !== undefined && d.RF_sm_km2 !== undefined)
-            .map(d => [d.year, d])).values()
+                .map(d => [d.year, d])).values()
         );
-        
+
         const validSpans = spanData.filter(d => d.LCRPGR !== undefined);
         const validSpan = validSpans.length > 0 ? validSpans[0] : null;
 
@@ -97,14 +103,14 @@ const Data = {
         let verdict = "";
         let verdictColor = "var(--text-muted)";
         let bupc0 = "N/A", bupc1 = "N/A";
-        
+
         if (validSpan && validSpan.LCRPGR !== undefined) {
             const lcrpgr = validSpan.LCRPGR;
             overallRatio = lcrpgr.toFixed(2);
             if (lcrpgr > 1) { verdict = "SPRAWLING"; verdictColor = "#FF5722"; }
             else if (lcrpgr > 0 && lcrpgr <= 1) { verdict = "DENSIFYING"; verdictColor = "#4CAF50"; }
             else { verdict = "DENSIFYING"; verdictColor = "#4CAF50"; }
-            
+
             bupc0 = validSpan.BUpc_t0_m2 ? Math.round(validSpan.BUpc_t0_m2) : "N/A";
             bupc1 = validSpan.BUpc_t1_m2 ? Math.round(validSpan.BUpc_t1_m2) : "N/A";
         }
@@ -116,7 +122,7 @@ const Data = {
 
         let initialRasterBtnHtml = `<i data-lucide="eye" class="icon sm"></i> Show Raster`;
         let layersVisible = false;
-        
+
         if (job && job.layers && job.layers.length > 0 && window.MapModule && MapModule.dataLayers) {
             const firstLayerId = `job_${job.layers[0].id}`;
             if (MapModule.dataLayers[firstLayerId] && MapModule.map && MapModule.map.hasLayer(MapModule.dataLayers[firstLayerId])) {
@@ -143,9 +149,9 @@ const Data = {
 
         let dateStr = "Analysis";
         if (job) {
-             dateStr = `${job.date_range_start}-${job.date_range_end} Analysis`;
+            dateStr = `${job.date_range_start}-${job.date_range_end} Analysis`;
         } else if (validSpan && validSpan.window) {
-             dateStr = `${validSpan.window} Analysis`;
+            dateStr = `${validSpan.window} Analysis`;
         }
 
         let jobSelectorHtml = '';
@@ -188,7 +194,7 @@ const Data = {
                     ${jobActionsHtml}
                 </div>
             `;
-            
+
             // Bind toggle raster button
             const toggleBtn = document.getElementById('sdg-toggle-raster-btn');
             if (toggleBtn) {
@@ -208,7 +214,7 @@ const Data = {
                                 }
                             }
                         });
-                        
+
                         if (window.MapModule && MapModule.addLegend) {
                             if (layersVisible) {
                                 MapModule.addLegend('Urban Extent Raster', `Red areas represent classified built-up surfaces for ${dateStr}.`, '#E85C0E');
@@ -219,16 +225,21 @@ const Data = {
                     }
                 };
             }
-            
+
             if (countryJobs && countryJobs.length > 1) {
-                UI.bindJobSelector(countryJobs, (selectedJob) => {
-                    this.loadJobData(selectedJob, country, countryJobs);
+                UI.bindJobSelector(countryJobs, async (selectedJob) => {
+                    try {
+                        const jobDetail = await window.API.getJob(selectedJob.id);
+                        this.loadJobData(jobDetail, country, countryJobs);
+                    } catch(e) {
+                        this.loadJobData(selectedJob, country, countryJobs);
+                    }
                 });
             }
-            
+
             // Render downloads
             this._renderJobDownloads(job.fileId || job.id, 'sdg-downloads-container');
-            
+
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }
 
@@ -238,7 +249,7 @@ const Data = {
     async _renderJobDownloads(jobId, containerId) {
         const container = document.getElementById(containerId);
         if (!container) return;
-        
+
         container.innerHTML = '<div style="font-size:0.8rem; color:var(--text-muted);">Loading downloads...</div>';
         try {
             const downloads = await API.getJobDownloads(jobId);
@@ -258,7 +269,7 @@ const Data = {
             } else {
                 container.innerHTML = '<div class="empty-state-sm" style="font-size:0.8rem;">No downloads found.</div>';
             }
-        } catch(e) {
+        } catch (e) {
             container.innerHTML = `<div class="error-inline" style="font-size:0.8rem;">Error loading downloads</div>`;
         }
     }
