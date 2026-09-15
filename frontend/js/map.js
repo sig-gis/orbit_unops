@@ -103,6 +103,7 @@ const MapModule = {
         fetch('/assets/countries.geojson')
             .then(res => res.json())
             .then(data => {
+                window.countriesGeoJSON = data; // Store globally for spatial operations
                 this.countryLayer.addData(data);
                 if (typeof App !== 'undefined' && App.onCountriesLoaded) {
                     App.onCountriesLoaded(data);
