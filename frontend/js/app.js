@@ -289,6 +289,10 @@ const App = {
              MapModule.countryLayer.eachLayer(layer => {
                  MapModule.countryLayer.resetStyle(layer);
              });
+             if (MapModule.maskLayer) {
+                 MapModule.map.removeLayer(MapModule.maskLayer);
+                 MapModule.maskLayer = null;
+             }
              if (MapModule.map) MapModule.map.closePopup();
         }
 

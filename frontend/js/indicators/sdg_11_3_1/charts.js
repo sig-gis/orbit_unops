@@ -62,7 +62,8 @@ export const Charts = {
                         title: {display: true, text: 'Annual Growth (%)', font: {size: 10}},
                         ticks: {
                             callback: function(value) {
-                                return value > 0 ? '+' + value + '%' : value + '%';
+                                const formatted = Number.isInteger(value) ? value : parseFloat(value.toFixed(2));
+                                return formatted > 0 ? '+' + formatted + '%' : formatted + '%';
                             }
                         }
                     } 

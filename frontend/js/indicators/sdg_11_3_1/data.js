@@ -1,5 +1,5 @@
-import { UI } from './ui.js?v=14Sep26-1';
-import { Charts } from './charts.js?v=14Sep26-1';
+import { UI } from './ui.js';
+import { Charts } from './charts.js';
 
 const Data = {
     async fetchAndVisualizeData(countryName) {
@@ -19,7 +19,7 @@ const Data = {
                     // Fetch the detail of the specific job to get dynamic map IDs
                     const jobDetail = await window.API.getJob(countryJobs[0].id);
                     this.loadJobData(jobDetail, countryName, countryJobs);
-                } catch(e) {
+                } catch (e) {
                     console.error("Failed to fetch specific job", e);
                     this.loadJobData(countryJobs[0], countryName, countryJobs);
                 }
@@ -87,8 +87,13 @@ const Data = {
     _renderDashboard(annualData, areaData, spanData, statsData, country, job, countryJobs) {
         // Filter and deduplicate
         const validAnnual = Array.from(
-            new Map(annualData.filter(d => d.window !== undefined && d.LCR !== undefined && d.PGR !== undefined)
-                .map(d => [d.window, d])).values()
+            new Map(annualData.filter(d => 
+                d.window !== undefined && 
+                d.LCR !== undefined && 
+                d.PGR !== undefined &&
+                d.urban_method === 'RF' &&
+                d.pop_source === 'GHS_POP'
+            ).map(d => [d.window, d])).values()
         );
 
         const validArea = Array.from(
@@ -96,7 +101,11 @@ const Data = {
                 .map(d => [d.year, d])).values()
         );
 
-        const validSpans = spanData.filter(d => d.LCRPGR !== undefined);
+        const validSpans = spanData.filter(d => 
+            d.LCRPGR !== undefined &&
+            d.urban_method === 'RF' &&
+            d.pop_source === 'GHS_POP'
+        );
         const validSpan = validSpans.length > 0 ? validSpans[0] : null;
 
         let overallRatio = "N/A";
@@ -231,7 +240,7 @@ const Data = {
                     try {
                         const jobDetail = await window.API.getJob(selectedJob.id);
                         this.loadJobData(jobDetail, country, countryJobs);
-                    } catch(e) {
+                    } catch (e) {
                         this.loadJobData(selectedJob, country, countryJobs);
                     }
                 });

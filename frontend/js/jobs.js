@@ -771,12 +771,23 @@ const Jobs = {
 
         if (!nlcAnalyticsPanel) return;
 
+        // Clear any previous NLC layers/legends from the map to prevent overlap confusion
+        if (typeof MapModule !== 'undefined' && MapModule.map) {
+            if (window.nlcRasterLayer) {
+                MapModule.map.removeLayer(window.nlcRasterLayer);
+                window.nlcRasterLayer = null;
+            }
+            if (window.nlcLegend) {
+                MapModule.map.removeControl(window.nlcLegend);
+                window.nlcLegend = null;
+            }
+        }
+
         // Zoom to Ireland (or standard AOI)
         if (typeof MapModule !== 'undefined' && MapModule.map) {
             MapModule.map.setView([53.4, -8.0], 7);
         }
 
-        const frame = document.getElementById('nlc-analytics-frame');
         const metricsContainer = document.getElementById('nlc-analytics-metrics');
 
         // Update titles to include both the specific AOI name AND the feature name
@@ -786,78 +797,243 @@ const Jobs = {
         if (titleEl) titleEl.textContent = `${aoiName} - National Land Cover Tasking`;
         if (restoreTextEl) restoreTextEl.textContent = `View ${aoiName} Tasking`;
 
-        // CRITICAL: Make the panel visible BEFORE writing to the iframe document,
-        // otherwise Firefox/Chrome will discard the write or leave it blank.
         nlcAnalyticsPanel.style.display = 'flex';
 
-        // Show loading state while fetching
-        frame.srcdoc = `
-            <div style="font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: #666; margin: 0; background: #fafafa;">
-                <div style="border: 3px solid #e0e0e0; border-top: 3px solid #005587; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin-bottom: 15px;"></div>
-                <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
-                <div style="font-size: 0.9rem; font-weight: 500;">Loading Analytics Report...</div>
-            </div>
-        `;
+        try {
+            // Check if results are nested
+            const results = job.result?.results || job.result;
+            if (!results) throw new Error("No results found in job data");
 
-        if (job.indicator_id === 'TASKING') {
-            if (metricsContainer) metricsContainer.style.display = 'none';
-            if (job.result?.viewer_url) {
-                // Fetch the HTML securely via our backend proxy to bypass GCS iframe blockers
-                try {
-                    const baseUrl = (window.ORBIT_CONFIG && window.ORBIT_CONFIG.API_BASE_URL) || 'http://localhost:8000';
-                    const res = await fetch(`${baseUrl}/proxy-html?url=${encodeURIComponent(job.result.viewer_url)}`);
-                    if (res.ok) {
-                        const htmlString = await res.text();
-                        frame.srcdoc = htmlString;
-                    } else {
-                        frame.removeAttribute('srcdoc');
-                        frame.src = job.result.viewer_url;
-                    }
-                } catch (e) {
-                    frame.removeAttribute('srcdoc');
-                    frame.src = job.result.viewer_url;
+            // Populate recommendations
+            const summary = job.result?.summary || {};
+            document.getElementById('nlc-res-ppb').textContent = summary.recommended_points_per_block || 'N/A';
+            document.getElementById('nlc-res-mbf').textContent = summary.recommended_minimum_block_fraction || 'N/A';
+            
+            const selection = results.selection || {};
+            document.getElementById('nlc-res-pp').textContent = selection.production_points ? selection.production_points.toLocaleString() : 'N/A';
+            document.getElementById('nlc-res-pb').textContent = selection.production_blocks ? selection.production_blocks.toLocaleString() : 'N/A';
+
+            // Populate Accuracy metrics
+            const eeMetrics = results.earth_engine || {};
+            const acc = eeMetrics.accuracy ? (eeMetrics.accuracy * 100).toFixed(1) : '0';
+            const auc = eeMetrics.auc ? (eeMetrics.auc).toFixed(3) : '0';
+            
+            document.getElementById('nlc-analytics-acc').textContent = `${acc}%`;
+            document.getElementById('nlc-analytics-kappa').textContent = auc; // Re-using Kappa box for AUC for now
+            document.getElementById('nlc-analytics-trees').textContent = eeMetrics.parameters?.number_of_trees || 'N/A';
+
+            if (eeMetrics.confusion_matrix) {
+                const { tp, fp, fn } = eeMetrics.confusion_matrix;
+                const precision = tp + fp > 0 ? ((tp / (tp + fp)) * 100).toFixed(1) + '%' : 'N/A';
+                const recall = tp + fn > 0 ? ((tp / (tp + fn)) * 100).toFixed(1) + '%' : 'N/A';
+                document.getElementById('nlc-analytics-precision').textContent = precision;
+                document.getElementById('nlc-analytics-recall').textContent = recall;
+            }
+
+            // Render ROC Chart
+            const rocCtx = document.getElementById('nlc-roc-chart');
+            if (rocCtx && eeMetrics.roc) {
+                // Destroy old chart if exists
+                if (window.nlcRocChart) {
+                    window.nlcRocChart.destroy();
                 }
-            } else {
-                frame.srcdoc = `<div style="font-family:sans-serif; padding: 20px; text-align: center; color: #666;">Map results are currently unavailable.</div>`;
-            }
-        } else {
-            if (metricsContainer) metricsContainer.style.display = 'flex';
-            if (job.result?.report_html_url) {
-                // Fetch the HTML securely via our backend proxy
-                try {
-                    const baseUrl = (window.ORBIT_CONFIG && window.ORBIT_CONFIG.API_BASE_URL) || 'http://localhost:8000';
-                    const res = await fetch(`${baseUrl}/proxy-html?url=${encodeURIComponent(job.result.report_html_url)}`);
-                    if (res.ok) {
-                        const htmlString = await res.text();
-                        frame.srcdoc = htmlString;
-                    } else {
-                        frame.removeAttribute('srcdoc');
-                        frame.src = job.result.report_html_url;
-                    }
-                } catch (e) {
-                    frame.removeAttribute('srcdoc');
-                    frame.src = job.result.report_html_url;
+                
+                const fpr = eeMetrics.roc.false_positive_rate || [];
+                const tpr = eeMetrics.roc.true_positive_rate || [];
+                
+                // Construct points
+                const points = fpr.map((x, i) => ({ x: x, y: tpr[i] }));
+                
+                // Find the closest threshold index to plot a point
+                const thresholds = eeMetrics.roc.threshold || eeMetrics.roc.thresholds || [];
+                const targetThreshold = eeMetrics.threshold || 0.5;
+                let closestIdx = 0;
+                let minDiff = Infinity;
+                thresholds.forEach((t, i) => {
+                    const diff = Math.abs(t - targetThreshold);
+                    if (diff < minDiff) { minDiff = diff; closestIdx = i; }
+                });
+                
+                const thresholdPoint = (fpr.length > 0 && tpr.length > 0) 
+                    ? { x: fpr[closestIdx], y: tpr[closestIdx] } 
+                    : null;
+                    
+                const datasets = [];
+                
+                if (thresholdPoint) {
+                    datasets.push({
+                        type: 'scatter',
+                        label: 'Selected Threshold',
+                        data: [thresholdPoint],
+                        backgroundColor: '#E85C0E',
+                        pointRadius: 6,
+                        pointHoverRadius: 8,
+                        borderColor: '#fff',
+                        borderWidth: 2,
+                        z: 10
+                    });
                 }
-            } else {
-                frame.srcdoc = `<div style="font-family:sans-serif; padding: 20px; text-align: center; color: #666;">Analytics report is currently unavailable.</div>`;
+                
+                datasets.push(
+                    {
+                        label: 'Earth Engine ROC',
+                        data: points,
+                        borderColor: '#0284c7', // brand-primary
+                        backgroundColor: 'rgba(2, 132, 199, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        order: 2
+                    },
+                    {
+                        label: 'Random Classifier',
+                        data: [{x: 0, y: 0}, {x: 1, y: 1}],
+                        borderColor: '#94a3b8',
+                        borderDash: [5, 5],
+                        fill: false,
+                        pointRadius: 0,
+                        borderWidth: 1,
+                        order: 3
+                    }
+                );
+
+                window.nlcRocChart = new Chart(rocCtx, {
+                    type: 'line',
+                    data: { datasets: datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index',
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => `TPR: ${ctx.parsed.y.toFixed(2)}, FPR: ${ctx.parsed.x.toFixed(2)}`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'linear',
+                                title: { display: true, text: 'False Positive Rate' },
+                                min: 0, max: 1
+                            },
+                            y: {
+                                title: { display: true, text: 'True Positive Rate' },
+                                min: 0, max: 1
+                            }
+                        }
+                    }
+                });
             }
 
-            // Populate metrics
-            if (job.result?.metrics) {
-                const acc = job.result.metrics['Overall Accuracy'] || job.result.metrics['Accuracy'];
-                const kappa = job.result.metrics['Kappa'];
-                const nTrees = job.result.metrics['NumberOfTrees'];
+            // Load GeoTIFF and calculate Total Area using GeoRaster
+            document.getElementById('nlc-analytics-area').textContent = 'Loading...';
+            
+            try {
+                if (typeof parseGeoraster !== 'undefined' && typeof GeoRasterLayer !== 'undefined') {
+                    // Using the backend proxy to bypass CORS
+                    const rawUrl = "https://storage.googleapis.com/unops/orbit-lc/_200m/ireland_national_pred_200m.tif";
+                    const url_to_geotiff_file = `${API.baseUrl}/proxy-csv?url=${encodeURIComponent(rawUrl)}`;
+                    const response = await fetch(url_to_geotiff_file);
+                    const arrayBuffer = await response.arrayBuffer();
+                    const georaster = await parseGeoraster(arrayBuffer);
+                    
+                    // Add dynamic legend
+                    if (window.nlcLegend) {
+                        MapModule.map.removeControl(window.nlcLegend);
+                    }
+                    const legend = L.control({ position: 'bottomright' });
+                    legend.onAdd = function () {
+                        const div = L.DomUtil.create('div', 'info legend');
+                        div.style.background = 'var(--bg-primary)';
+                        div.style.padding = '10px 15px';
+                        div.style.borderRadius = '8px';
+                        div.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                        div.style.border = '1px solid var(--border-color)';
+                        div.style.color = 'var(--text-main)';
+                        div.style.fontFamily = 'var(--font-family)';
+                        div.innerHTML = `
+                            <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px;">Classification</div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div style="width: 16px; height: 16px; background: #8B4513; border-radius: 4px; border: 1px solid rgba(0,0,0,0.2);"></div>
+                                <span style="font-size: 0.85rem; color: var(--text-main);">Peat Soil (>30% LOI)</span>
+                            </div>
+                        `;
+                        return div;
+                    };
+                    legend.addTo(MapModule.map);
+                    window.nlcLegend = legend;
 
-                if (acc) document.getElementById('nlc-analytics-acc').textContent = (acc * 100).toFixed(1) + '%';
-                if (kappa) document.getElementById('nlc-analytics-kappa').textContent = (kappa * 100).toFixed(1) + '%';
-                if (nTrees) document.getElementById('nlc-analytics-trees').textContent = nTrees;
+                    const layer = new GeoRasterLayer({
+                        georaster: georaster,
+                        opacity: 0.85,
+                        pixelValuesToColorFn: values => {
+                            const loi = values[0];
+                            if (loi >= 30.0) {
+                                return '#8B4513';
+                            }
+                            return null;
+                        },
+                        resolution: 128
+                    });
+                    
+                    if (window.nlcRasterLayer) {
+                        MapModule.map.removeLayer(window.nlcRasterLayer);
+                    }
+                    window.nlcRasterLayer = layer;
+                    layer.addTo(MapModule.map);
+                    
+                    // Iterate the raw data array once to calculate total area
+                    let totalPeatPixels = 0;
+                    const data = georaster.values[0]; // Band 1
+                    for (let y = 0; y < georaster.height; y++) {
+                        for (let x = 0; x < georaster.width; x++) {
+                            const val = data[y][x];
+                            // Check for valid data and threshold (>= 30.0)
+                            if (val !== georaster.noDataValue && val >= 30.0) {
+                                totalPeatPixels++;
+                            }
+                        }
+                    }
+                    
+                    // 200m x 200m pixels = 40,000 sq meters = 0.04 sq km per pixel
+                    const areaSqKm = totalPeatPixels * 0.04; 
+                    document.getElementById('nlc-analytics-area').textContent = areaSqKm.toLocaleString(undefined, { maximumFractionDigits: 0 });
+                    
+                    MapModule.map.fitBounds(layer.getBounds());
+                } else {
+                    document.getElementById('nlc-analytics-area').textContent = 'Ext missing';
+                }
+            } catch (err) {
+                console.error("GeoRaster error:", err);
+                document.getElementById('nlc-analytics-area').textContent = 'Error';
             }
+
+        } catch (error) {
+            console.error("Error rendering NLC results:", error);
+            if (typeof Toast !== 'undefined') Toast.show('Error parsing classification results', 'error');
         }
+
 
         // Hook up panel buttons if not already hooked
         if (!nlcAnalyticsPanel.dataset.hooked) {
             document.getElementById('nlc-analytics-panel-close').onclick = () => {
                 nlcAnalyticsPanel.style.display = 'none';
+                if (window.nlcRasterLayer && typeof MapModule !== 'undefined') {
+                    MapModule.map.removeLayer(window.nlcRasterLayer);
+                    window.nlcRasterLayer = null;
+                }
+                if (window.nlcLegend && typeof MapModule !== 'undefined') {
+                    MapModule.map.removeControl(window.nlcLegend);
+                    window.nlcLegend = null;
+                }
             };
             document.getElementById('nlc-analytics-panel-minimize').onclick = () => {
                 nlcAnalyticsPanel.style.display = 'none';
@@ -867,7 +1043,33 @@ const Jobs = {
                 document.getElementById('nlc-analytics-panel-restore').style.display = 'none';
                 nlcAnalyticsPanel.style.display = 'flex';
             };
+            
+            // Ground Truth Toggle
+            document.getElementById('nlc-toggle-ground-truth').onchange = (e) => {
+                if (typeof MapModule !== 'undefined' && window.nlcGroundTruthLayer) {
+                    if (e.target.checked) {
+                        window.nlcGroundTruthLayer.addTo(MapModule.map);
+                        if (window.nlcGroundTruthLegend) window.nlcGroundTruthLegend.addTo(MapModule.map);
+                    } else {
+                        MapModule.map.removeLayer(window.nlcGroundTruthLayer);
+                        if (window.nlcGroundTruthLegend) MapModule.map.removeControl(window.nlcGroundTruthLegend);
+                    }
+                }
+            };
+            
             nlcAnalyticsPanel.dataset.hooked = 'true';
+        }
+        
+        // Reset and manage Ground Truth toggle state for this viewing session
+        const toggleContainer = document.getElementById('nlc-ground-truth-toggle-container');
+        const toggleInput = document.getElementById('nlc-toggle-ground-truth');
+        if (window.nlcGroundTruthLayer && typeof MapModule !== 'undefined') {
+            toggleContainer.style.display = 'flex';
+            toggleInput.checked = false; // Hide by default when raster is viewed
+            MapModule.map.removeLayer(window.nlcGroundTruthLayer);
+            if (window.nlcGroundTruthLegend) MapModule.map.removeControl(window.nlcGroundTruthLegend);
+        } else {
+            toggleContainer.style.display = 'none';
         }
     },
 

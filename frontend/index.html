@@ -23,6 +23,10 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
+    <!-- GeoRaster -->
+    <script src="https://unpkg.com/georaster"></script>
+    <script src="https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js"></script>
+
     <!-- App CSS -->
     <link rel="stylesheet" href="/css/design-system.css?v=27July26">
     <link rel="stylesheet" href="/css/layout.css?v=27July26">
@@ -177,33 +181,64 @@
                                 data-lucide="x" class="icon"></i></button>
                     </div>
                 </div>
+                <div id="nlc-ground-truth-toggle-container" style="display:none; justify-content:flex-end; margin-bottom: 10px;">
+                    <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-main);">
+                        <input type="checkbox" id="nlc-toggle-ground-truth"> Show Ground Truth Points
+                    </label>
+                </div>
 
                 <div style="flex: 1; display: flex; flex-direction: column; width: 100%;">
-                    <iframe id="nlc-analytics-frame" style="width: 100%; flex: 1; border: none; min-height: 500px;"
-                        src="about:blank"></iframe>
+                    
+                    <div id="nlc-native-results" style="flex: 1; display: flex; flex-direction: column; overflow-y: auto;">
+                        <!-- Key Recommendations -->
+                        <div style="background: var(--bg-primary); padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-light);">
+                            <h4 style="margin-bottom: 10px; color: var(--brand-secondary); font-size: 0.9rem;"><i data-lucide="check-square" class="icon sm"></i> Tasking Recommendations</h4>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 5px; color: var(--text-main);"><span>Points per block:</span><span id="nlc-res-ppb" style="font-weight:600; color: var(--brand-primary);"></span></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 5px; color: var(--text-main);"><span>Min block fraction:</span><span id="nlc-res-mbf" style="font-weight:600; color: var(--brand-primary);"></span></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 5px; color: var(--text-main);"><span>Production points:</span><span id="nlc-res-pp" style="font-weight:600; color: var(--brand-primary);"></span></div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-main);"><span>Production blocks:</span><span id="nlc-res-pb" style="font-weight:600; color: var(--brand-primary);"></span></div>
+                        </div>
+
+                        <!-- ROC Chart -->
+                        <div style="background: var(--bg-primary); padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-light);">
+                            <h4 style="margin-bottom: 10px; color: var(--brand-secondary); font-size: 0.9rem;"><i data-lucide="activity" class="icon sm"></i> ROC Curve</h4>
+                            <div style="position: relative; height: 250px; width: 100%;">
+                                <canvas id="nlc-roc-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
 
                     <div id="nlc-analytics-metrics"
-                        style="margin-top: 15px; display: flex; gap: 10px; justify-content: space-around;">
+                        style="margin-top: 15px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
                         <div
-                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; flex: 1; border: 1px solid var(--border-light);">
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">
-                                Accuracy</div>
-                            <div id="nlc-analytics-acc"
-                                style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">0%</div>
+                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-light);">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Total Area (km²)</div>
+                            <div id="nlc-analytics-area" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">-</div>
                         </div>
                         <div
-                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; flex: 1; border: 1px solid var(--border-light);">
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">
-                                Kappa</div>
-                            <div id="nlc-analytics-kappa"
-                                style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">0%</div>
+                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-light);">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Overall Accuracy</div>
+                            <div id="nlc-analytics-acc" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">0%</div>
                         </div>
                         <div
-                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; flex: 1; border: 1px solid var(--border-light);">
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">
-                                Trees</div>
-                            <div id="nlc-analytics-trees"
-                                style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">0</div>
+                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-light);">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">AUC / Kappa</div>
+                            <div id="nlc-analytics-kappa" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">0</div>
+                        </div>
+                        <div
+                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-light);">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">User's Acc (Precision)</div>
+                            <div id="nlc-analytics-precision" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">N/A</div>
+                        </div>
+                        <div
+                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-light);">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Producer's Acc (Recall)</div>
+                            <div id="nlc-analytics-recall" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">N/A</div>
+                        </div>
+                        <div
+                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-light);">
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Trees</div>
+                            <div id="nlc-analytics-trees" style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">0</div>
                         </div>
                     </div>
                 </div>
@@ -355,6 +390,14 @@
                     <div id="nlc-recommendations-section" style="display:none; margin-bottom: 1rem; padding: 10px; background: var(--bg-primary); border-radius: 6px; border: 1px solid var(--border-color);">
                         <h4 style="margin-bottom: 10px; font-size: 0.85rem;"><i data-lucide="check-square" class="icon sm" style="color:var(--brand-secondary);"></i> Tasking Recommendations</h4>
                         <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main);">
+                            <span>Points per block:</span>
+                            <span id="nlc-rec-ppb" style="font-weight: 600;">0</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main); margin-top: 5px;">
+                            <span>Min block fraction:</span>
+                            <span id="nlc-rec-mbf" style="font-weight: 600;">0</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main); margin-top: 5px;">
                             <span>Production Points:</span>
                             <span id="nlc-rec-points" style="font-weight: 600;">0</span>
                         </div>

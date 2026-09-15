@@ -409,18 +409,20 @@ def run_tasking(config):
         )
 
     def normalize_feature(feature):
-        row_id = ee.Algorithms.If(feature.get("_row"), feature.get("_row"), feature.id())
+        # Force row_id to be a String to avoid mixing Integers (from _row) and Strings (from feature.id)
+        row_id = ee.String(ee.Algorithms.If(feature.get("_row"), feature.get("_row"), feature.id()))
         xy = feature_block_xy(feature)
-        x = ee.Number(xy.get("x"))
-        y_coord = ee.Number(xy.get("y"))
+        x = ee.Number(xy.get("x")).float()
+        y_coord = ee.Number(xy.get("y")).float()
         block_id = x.divide(block_size).floor().format().cat("_").cat(
             y_coord.divide(block_size).floor().format()
         )
-        return feature.set(
+        return ee.Feature(
+            feature.geometry(),
             {
                 "_row": row_id,
-                "lon": ee.Number(feature.get(lon)),
-                "lat": ee.Number(feature.get(lat)),
+                "lon": ee.Number(feature.get(lon)).float(),
+                "lat": ee.Number(feature.get(lat)).float(),
                 "y": ee.Number(feature.get(target)).gte(threshold).int(),
                 "block_x_m": x,
                 "block_y_m": y_coord,
