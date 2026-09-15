@@ -189,30 +189,11 @@
 
                 <div style="flex: 1; display: flex; flex-direction: column; width: 100%;">
                     
-                    <div id="nlc-native-results" style="flex: 1; display: flex; flex-direction: column; overflow-y: auto;">
-                        <!-- Key Recommendations -->
-                        <div style="background: var(--bg-primary); padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-light);">
-                            <h4 style="margin-bottom: 10px; color: var(--brand-secondary); font-size: 0.9rem;"><i data-lucide="check-square" class="icon sm"></i> Tasking Recommendations</h4>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 5px; color: var(--text-main);"><span>Points per block:</span><span id="nlc-res-ppb" style="font-weight:600; color: var(--brand-primary);"></span></div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 5px; color: var(--text-main);"><span>Min block fraction:</span><span id="nlc-res-mbf" style="font-weight:600; color: var(--brand-primary);"></span></div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 5px; color: var(--text-main);"><span>Production points:</span><span id="nlc-res-pp" style="font-weight:600; color: var(--brand-primary);"></span></div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-main);"><span>Production blocks:</span><span id="nlc-res-pb" style="font-weight:600; color: var(--brand-primary);"></span></div>
-                        </div>
-
-                        <!-- ROC Chart -->
-                        <div style="background: var(--bg-primary); padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-light);">
-                            <h4 style="margin-bottom: 10px; color: var(--brand-secondary); font-size: 0.9rem;"><i data-lucide="activity" class="icon sm"></i> ROC Curve</h4>
-                            <div style="position: relative; height: 250px; width: 100%;">
-                                <canvas id="nlc-roc-chart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-
                     <div id="nlc-analytics-metrics"
-                        style="margin-top: 15px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                        style="margin-bottom: 15px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
                         <div
                             style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-light);">
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Total Area (km²)</div>
+                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Total Peat Soil Area (km²)</div>
                             <div id="nlc-analytics-area" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">-</div>
                         </div>
                         <div
@@ -225,21 +206,22 @@
                             <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">AUC / Kappa</div>
                             <div id="nlc-analytics-kappa" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">0</div>
                         </div>
-                        <div
-                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-light);">
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">User's Acc (Precision)</div>
-                            <div id="nlc-analytics-precision" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">N/A</div>
+                    </div>
+
+                    <div id="nlc-native-results" style="flex: 1; display: flex; flex-direction: column; overflow-y: auto;">
+                        <!-- ROC Chart -->
+                        <div style="background: var(--bg-primary); padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-light);">
+                            <h4 style="margin-bottom: 10px; color: var(--brand-secondary); font-size: 0.9rem;"><i data-lucide="activity" class="icon sm"></i> ROC Curve</h4>
+                            <div style="position: relative; height: 250px; width: 100%;">
+                                <canvas id="nlc-roc-chart"></canvas>
+                            </div>
                         </div>
-                        <div
-                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-light);">
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Producer's Acc (Recall)</div>
-                            <div id="nlc-analytics-recall" style="font-size: 1.25rem; font-weight: 600; color: var(--brand-secondary);">N/A</div>
-                        </div>
-                        <div
-                            style="background: var(--bg-primary); padding: 10px; border-radius: 6px; text-align: center; border: 1px solid var(--border-light);">
-                            <div style="font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase;">Trees</div>
-                            <div id="nlc-analytics-trees" style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary);">0</div>
-                        </div>
+
+                        <button class="btn-primary full-width" id="btn-download-nlc-raster" style="margin-bottom: 15px;">
+                            <i data-lucide="download" class="icon"></i> Download Raster Data
+                        </button>
+                    </div>
+
                     </div>
                 </div>
             </div>

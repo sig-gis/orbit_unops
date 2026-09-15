@@ -806,12 +806,7 @@ const Jobs = {
 
             // Populate recommendations
             const summary = job.result?.summary || {};
-            document.getElementById('nlc-res-ppb').textContent = summary.recommended_points_per_block || 'N/A';
-            document.getElementById('nlc-res-mbf').textContent = summary.recommended_minimum_block_fraction || 'N/A';
-            
             const selection = results.selection || {};
-            document.getElementById('nlc-res-pp').textContent = selection.production_points ? selection.production_points.toLocaleString() : 'N/A';
-            document.getElementById('nlc-res-pb').textContent = selection.production_blocks ? selection.production_blocks.toLocaleString() : 'N/A';
 
             // Populate Accuracy metrics
             const eeMetrics = results.earth_engine || {};
@@ -820,15 +815,6 @@ const Jobs = {
             
             document.getElementById('nlc-analytics-acc').textContent = `${acc}%`;
             document.getElementById('nlc-analytics-kappa').textContent = auc; // Re-using Kappa box for AUC for now
-            document.getElementById('nlc-analytics-trees').textContent = eeMetrics.parameters?.number_of_trees || 'N/A';
-
-            if (eeMetrics.confusion_matrix) {
-                const { tp, fp, fn } = eeMetrics.confusion_matrix;
-                const precision = tp + fp > 0 ? ((tp / (tp + fp)) * 100).toFixed(1) + '%' : 'N/A';
-                const recall = tp + fn > 0 ? ((tp / (tp + fn)) * 100).toFixed(1) + '%' : 'N/A';
-                document.getElementById('nlc-analytics-precision').textContent = precision;
-                document.getElementById('nlc-analytics-recall').textContent = recall;
-            }
 
             // Render ROC Chart
             const rocCtx = document.getElementById('nlc-roc-chart');
@@ -963,7 +949,7 @@ const Jobs = {
                             <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px;">Classification</div>
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <div style="width: 16px; height: 16px; background: #8B4513; border-radius: 4px; border: 1px solid rgba(0,0,0,0.2);"></div>
-                                <span style="font-size: 0.85rem; color: var(--text-main);">Peat Soil (>30% LOI)</span>
+                                <span style="font-size: 0.85rem; color: var(--text-main);">Peat Soil</span>
                             </div>
                         `;
                         return div;
@@ -1043,6 +1029,21 @@ const Jobs = {
                 document.getElementById('nlc-analytics-panel-restore').style.display = 'none';
                 nlcAnalyticsPanel.style.display = 'flex';
             };
+            
+            const btnDownloadRaster = document.getElementById('btn-download-nlc-raster');
+            if (btnDownloadRaster) {
+                btnDownloadRaster.onclick = () => {
+                    const rawUrl = "https://storage.googleapis.com/unops/orbit-lc/_200m/ireland_national_pred_200m.tif";
+                    // Attempt to download the file directly
+                    const link = document.createElement('a');
+                    link.href = rawUrl;
+                    link.target = '_blank';
+                    link.download = 'ireland_national_pred_200m.tif';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                };
+            }
             
             // Ground Truth Toggle
             document.getElementById('nlc-toggle-ground-truth').onchange = (e) => {

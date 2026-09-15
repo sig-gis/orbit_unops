@@ -187,30 +187,26 @@ def _plot_roc(report):
 
 
 def _viewer_html(report, results_url):
-    """Build a premium static HTML report with matplotlib plots for browser viewing from GCS."""
+    """Build a static HTML report with matplotlib plots for browser viewing from GCS."""
     selection = report.get("selection", {})
+    input_summary = report.get("input", {})
     sklearn = report.get("sklearn", {})
     earth_engine = report.get("earth_engine", {})
+    assets = report.get("assets", {})
+    run = report.get("run", {})
     plots = {
         "split_map": _plot_split_map(report),
         "experiments": _plot_experiments(report),
         "roc": _plot_roc(report),
     }
 
-    def _fmt(val):
-        if isinstance(val, float):
-            return f"{val:.3f}"
-        if val is None:
-            return "n/a"
-        return escape(str(val))
-
     def metric_row(label, data):
         return (
             "<tr>"
             f"<th>{escape(label)}</th>"
-            f"<td>{_fmt(data.get('auc'))}</td>"
-            f"<td>{_fmt(data.get('accuracy'))}</td>"
-            f"<td>{_fmt(data.get('threshold'))}</td>"
+            f"<td>{escape(str(data.get('auc', 'n/a')))}</td>"
+            f"<td>{escape(str(data.get('accuracy', 'n/a')))}</td>"
+            f"<td>{escape(str(data.get('threshold', 'n/a')))}</td>"
             "</tr>"
         )
 
@@ -218,127 +214,109 @@ def _viewer_html(report, results_url):
         matrix = matrix or {}
         return f"""
         <div class=\"matrix\">
-          <h3 class=\"text-gradient\">{escape(label)}</h3>
+          <h3>{escape(label)}</h3>
           <table>
             <tr><th></th><th>Predicted 0</th><th>Predicted 1</th></tr>
-            <tr><th>Actual 0</th><td>{_fmt(matrix.get('tn'))}</td><td>{_fmt(matrix.get('fp'))}</td></tr>
-            <tr><th>Actual 1</th><td>{_fmt(matrix.get('fn'))}</td><td>{_fmt(matrix.get('tp'))}</td></tr>
+            <tr><th>Actual 0</th><td>{escape(str(matrix.get('tn', 'n/a')))}</td><td>{escape(str(matrix.get('fp', 'n/a')))}</td></tr>
+            <tr><th>Actual 1</th><td>{escape(str(matrix.get('fn', 'n/a')))}</td><td>{escape(str(matrix.get('tp', 'n/a')))}</td></tr>
           </table>
         </div>"""
 
+    asset_items = "".join(
+        f"<li><strong>{escape(str(key))}:</strong> <code>{escape(str(value))}</code></li>"
+        for key, value in assets.items()
+    )
+    report_json = escape(json.dumps(report, default=_json_default, indent=2))
     return f"""<!doctype html>
 <html lang=\"en\">
 <head>
   <meta charset=\"utf-8\">
-  <title>Space-for-time tasking report</title>
-  <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap\" rel=\"stylesheet\">
+  <title>Space-for-time tasking report - {escape(report['run']['name'])}</title>
   <style>
-    body {{ font-family: 'Inter', sans-serif; margin: 0; padding: 2rem; line-height: 1.6; color: #1e293b; background: #f8fafc; overflow-x: hidden; }}
-    h1, h2, h3 {{ font-weight: 600; margin-top: 0; }}
-    h1 {{ color: #0f172a; font-size: 2rem; margin-bottom: 0.5rem; }}
-    .text-gradient {{ color: #0284c7; }}
-    .header-container {{ text-align: center; margin-bottom: 3rem; animation: fadeIn 0.8s ease-out; }}
-    
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; max-width: 1400px; margin: 0 auto; }}
-    .card {{ background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); transition: transform 0.2s, box-shadow 0.2s; }}
-    .card:hover {{ transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); border-color: #bae6fd; }}
-    
-    table {{ border-collapse: separate; border-spacing: 0; width: 100%; margin: 1rem 0; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; }}
-    th, td {{ padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #e2e8f0; }}
-    th {{ background: #f1f5f9; font-weight: 600; color: #475569; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.05em; }}
-    td {{ color: #334155; font-variant-numeric: tabular-nums; }}
-    tr:last-child td {{ border-bottom: none; }}
-    
-    .plot-container {{ background: #ffffff; padding: 1rem; border-radius: 8px; margin-top: 1rem; border: 1px solid #e2e8f0; }}
-    .plot {{ max-width: 100%; height: auto; display: block; margin: 0 auto; mix-blend-mode: multiply; }}
-    .matrix-grid {{ display: flex; flex-wrap: wrap; gap: 2rem; justify-content: space-between; }}
-    .matrix {{ flex: 1; min-width: 200px; }}
-    
-    .stat-row {{ display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding: 0.75rem 0; }}
-    .stat-row:last-child {{ border-bottom: none; }}
-    .stat-label {{ color: #475569; font-weight: 500; }}
-    .stat-value {{ font-weight: 600; color: #0284c7; font-variant-numeric: tabular-nums; }}
-    
-    @keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(10px); }} to {{ opacity: 1; transform: translateY(0); }} }}
-    .card {{ animation: fadeIn 0.6s ease-out backwards; }}
-    .card:nth-child(1) {{ animation-delay: 0.1s; }}
-    .card:nth-child(2) {{ animation-delay: 0.2s; }}
-    .card:nth-child(3) {{ animation-delay: 0.3s; }}
-    .card:nth-child(4) {{ animation-delay: 0.4s; }}
+    body {{ font-family: Arial, sans-serif; margin: 2rem; line-height: 1.45; color: #1f2937; background: #f8fafc; }}
+    h1, h2, h3 {{ color: #111827; }}
+    code, pre {{ background: #f3f4f6; padding: 0.15rem 0.3rem; border-radius: 4px; }}
+    pre {{ padding: 1rem; overflow-x: auto; }}
+    table {{ border-collapse: collapse; margin: 1rem 0; }}
+    th, td {{ border: 1px solid #d1d5db; padding: 0.5rem 0.75rem; text-align: left; }}
+    th {{ background: #f9fafb; }}
+    .card {{ background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin: 1rem 0; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; }}
+    .plot {{ max-width: 100%; height: auto; display: block; margin: 0 auto; }}
+    .matrix-grid {{ display: flex; flex-wrap: wrap; gap: 2rem; }}
+    .muted {{ color: #6b7280; }}
   </style>
 </head>
 <body>
-  <div class=\"header-container\">
-    <h1 class=\"text-gradient\">Advanced Tasking Analytics</h1>
-    <p style=\"color: #94a3b8;\">Run ID: {escape(report['run']['name'])}</p>
+  <h1>Space-for-time tasking report</h1>
+  <p><strong>Run:</strong> {escape(report['run']['name'])}</p>
+  <p><strong>Raw JSON:</strong> <a href=\"{escape(results_url)}\">results.json</a></p>
+
+  <div class=\"card\">
+    <h2>Recommendation</h2>
+    <p><strong>Points per block:</strong> {escape(str(selection.get('points_per_block', 'n/a')))}</p>
+    <p><strong>Recommended minimum block fraction:</strong> {escape(str(selection.get('recommended_minimum_block_fraction', 'n/a')))}</p>
+    <p><strong>Production points:</strong> {escape(str(selection.get('production_points', 'n/a')))}</p>
+    <p><strong>Production blocks:</strong> {escape(str(selection.get('production_blocks', 'n/a')))}</p>
   </div>
 
-  <div class=\"grid\">
-    <!-- Key Recommendations -->
-    <div class=\"card\">
-      <h2 class=\"text-gradient\">Tasking Recommendation</h2>
-      <div class=\"stat-row\">
-        <span class=\"stat-label\">Points per block</span>
-        <span class=\"stat-value\">{_fmt(selection.get('points_per_block'))}</span>
-      </div>
-      <div class=\"stat-row\">
-        <span class=\"stat-label\">Minimum block fraction</span>
-        <span class=\"stat-value\">{_fmt(selection.get('recommended_minimum_block_fraction'))}</span>
-      </div>
-      <div class=\"stat-row\">
-        <span class=\"stat-label\">Production points</span>
-        <span class=\"stat-value\">{_fmt(selection.get('production_points'))}</span>
-      </div>
-      <div class=\"stat-row\">
-        <span class=\"stat-label\">Production blocks</span>
-        <span class=\"stat-value\">{_fmt(selection.get('production_blocks'))}</span>
-      </div>
-    </div>
+  <div class=\"card\">
+    <h2>Spatial blocking</h2>
+    <p><strong>Block coordinate source:</strong> {escape(str(run.get('block_coordinate_source', 'n/a')))}</p>
+    <p><strong>Block CRS:</strong> {escape(str(run.get('block_crs', 'n/a')))}</p>
+    <p><strong>Block size:</strong> {escape(str(run.get('block_size_m', 'n/a')))} meters</p>
+  </div>
 
-    <!-- Model Metrics -->
-    <div class=\"card\">
-      <h2 class=\"text-gradient\">Performance Metrics</h2>
-      <table>
-        <tr><th>Model</th><th>AUC</th><th>Accuracy</th><th>Threshold</th></tr>
-        {metric_row('Scikit-Learn', sklearn)}
-        {metric_row('Earth Engine', earth_engine)}
-      </table>
-    </div>
+  <div class=\"card\">
+    <h2>Input summary</h2>
+    <p><strong>Observations:</strong> {escape(str(input_summary.get('n_observations', 'n/a')))}</p>
+    <p><strong>Positive observations:</strong> {escape(str(input_summary.get('n_positive', 'n/a')))}</p>
+    <p><strong>Positive fraction:</strong> {escape(str(input_summary.get('positive_fraction', 'n/a')))}</p>
+    <p><strong>Spatial blocks:</strong> {escape(str(input_summary.get('n_blocks', 'n/a')))}</p>
+  </div>
 
-    <!-- Confusion Matrices -->
-    <div class=\"card\" style=\"grid-column: 1 / -1;\">
-      <h2 class=\"text-gradient\">Confusion Matrices</h2>
-      <div class=\"matrix-grid\">
-        {confusion_matrix_table('Scikit-Learn', sklearn.get('confusion_matrix'))}
-        {confusion_matrix_table('Earth Engine', earth_engine.get('confusion_matrix'))}
-      </div>
-    </div>
+  <div class=\"card\">
+    <h2>Training and held-out observations</h2>
+    <p class=\"muted\">Matplotlib scatter plot equivalent to the original notebook spatial holdout map.</p>
+    <img class=\"plot\" alt=\"Training and held-out observations\" src=\"data:image/png;base64,{plots['split_map']}\">
+  </div>
 
-    <!-- Plots -->
-    <div class=\"card\" style=\"grid-column: 1 / -1;\">
-      <h2 class=\"text-gradient\">Spatial Distribution</h2>
-      <p style=\"color:#94a3b8; font-size:0.9rem; margin-top:-0.5rem;\">Map of training vs held-out observation points across the AOI.</p>
-      <div class=\"plot-container\">
-        <img class=\"plot\" alt=\"Training and held-out observations\" src=\"data:image/png;base64,{plots['split_map']}\">
-      </div>
-    </div>
+  <div class=\"card\">
+    <h2>Tasking experiments</h2>
+    <img class=\"plot\" alt=\"Tasking experiment plots\" src=\"data:image/png;base64,{plots['experiments']}\">
+  </div>
 
-    <div class=\"card\">
-      <h2 class=\"text-gradient\">ROC Curve</h2>
-      <p style=\"color:#94a3b8; font-size:0.9rem; margin-top:-0.5rem;\">Model performance at distinguishing targets.</p>
-      <div class=\"plot-container\">
-        <img class=\"plot\" alt=\"ROC curve\" src=\"data:image/png;base64,{plots['roc']}\">
-      </div>
-    </div>
+  <div class=\"card\">
+    <h2>ROC on held-out blocks</h2>
+    <img class=\"plot\" alt=\"ROC curve\" src=\"data:image/png;base64,{plots['roc']}\">
+  </div>
 
-    <div class=\"card\">
-      <h2 class=\"text-gradient\">Tasking Experiments</h2>
-      <p style=\"color:#94a3b8; font-size:0.9rem; margin-top:-0.5rem;\">AUC score convergence across iterations.</p>
-      <div class=\"plot-container\">
-        <img class=\"plot\" alt=\"Tasking experiment plots\" src=\"data:image/png;base64,{plots['experiments']}\">
-      </div>
+  <div class=\"card\">
+    <h2>Model metrics</h2>
+    <table>
+      <tr><th>Model</th><th>AUC</th><th>Accuracy</th><th>Threshold</th></tr>
+      {metric_row('sklearn', sklearn)}
+      {metric_row('earth_engine', earth_engine)}
+    </table>
+  </div>
+
+  <div class=\"card\">
+    <h2>Confusion matrices</h2>
+    <div class=\"matrix-grid\">
+      {confusion_matrix_table('sklearn', sklearn.get('confusion_matrix'))}
+      {confusion_matrix_table('earth_engine', earth_engine.get('confusion_matrix'))}
     </div>
   </div>
+
+  <div class=\"card\">
+    <h2>Earth Engine assets</h2>
+    <ul>{asset_items}</ul>
+  </div>
+
+  <details>
+    <summary>Full report JSON</summary>
+    <pre>{report_json}</pre>
+  </details>
 </body>
 </html>"""
 
@@ -409,20 +387,18 @@ def run_tasking(config):
         )
 
     def normalize_feature(feature):
-        # Force row_id to be a String to avoid mixing Integers (from _row) and Strings (from feature.id)
-        row_id = ee.String(ee.Algorithms.If(feature.get("_row"), feature.get("_row"), feature.id()))
+        row_id = ee.Algorithms.If(feature.get("_row"), feature.get("_row"), feature.id())
         xy = feature_block_xy(feature)
-        x = ee.Number(xy.get("x")).float()
-        y_coord = ee.Number(xy.get("y")).float()
+        x = ee.Number(xy.get("x"))
+        y_coord = ee.Number(xy.get("y"))
         block_id = x.divide(block_size).floor().format().cat("_").cat(
             y_coord.divide(block_size).floor().format()
         )
-        return ee.Feature(
-            feature.geometry(),
+        return feature.set(
             {
                 "_row": row_id,
-                "lon": ee.Number(feature.get(lon)).float(),
-                "lat": ee.Number(feature.get(lat)).float(),
+                "lon": ee.Number(feature.get(lon)),
+                "lat": ee.Number(feature.get(lat)),
                 "y": ee.Number(feature.get(target)).gte(threshold).int(),
                 "block_x_m": x,
                 "block_y_m": y_coord,
@@ -480,7 +456,6 @@ def run_tasking(config):
         return (
             ee.ImageCollection(EMBEDDINGS)
             .filterDate(f"{year}-01-01", f"{year + 1}-01-01")
-            .filterBounds(points.geometry())
             .mosaic()
             .select(bands)
         )

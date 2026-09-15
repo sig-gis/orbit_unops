@@ -4,7 +4,7 @@ import { submitLandCoverJob, fetchGeeColumns, fetchGcsColumns } from './api.js';
 
 export const UI = {
     panel: null,
-    
+
     init() {
         this.panel = document.getElementById('nlc-panel');
 
@@ -25,7 +25,7 @@ export const UI = {
                 }
             });
         }
-        
+
         const restoreBtn = document.getElementById('nlc-panel-restore');
         if (restoreBtn) {
             restoreBtn.addEventListener('click', () => {
@@ -54,18 +54,18 @@ export const UI = {
         // Hook into App to auto-populate Country Name
         if (typeof App !== 'undefined') {
             const originalSelect = App.selectCountry;
-            App.selectCountry = function(countryName, updateDropdown) {
+            App.selectCountry = function (countryName, updateDropdown) {
                 if (originalSelect) originalSelect.call(App, countryName, updateDropdown);
                 const nlcCountry = document.getElementById('nlc-country-name');
                 if (nlcCountry) nlcCountry.textContent = countryName;
             };
             const originalDeselect = App.deselectCountry;
-            App.deselectCountry = function() {
+            App.deselectCountry = function () {
                 if (originalDeselect) originalDeselect.call(App);
                 const nlcCountry = document.getElementById('nlc-country-name');
                 if (nlcCountry) nlcCountry.textContent = 'None (Select on map)';
             };
-            
+
             // Set initial if already selected
             if (App.currentCountry) {
                 const nlcCountry = document.getElementById('nlc-country-name');
@@ -90,7 +90,7 @@ export const UI = {
         if (geeInput) {
             geeInput.addEventListener('blur', (e) => this.handleGeeBlur(e));
         }
-        
+
         const gcsInput = document.getElementById('nlc-gcs-uri');
         if (gcsInput) {
             gcsInput.addEventListener('blur', (e) => this.handleGcsBlur(e));
@@ -121,23 +121,23 @@ export const UI = {
         const btn = event.target;
         const source = btn.dataset.nlcSource;
         State.customSourceType = source;
-        
+
         // Update active tab styling
         document.querySelectorAll('button[data-nlc-source]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        
+
         // Hide all source containers
         document.getElementById('nlc-source-csv-container').style.display = 'none';
         document.getElementById('nlc-source-gee-container').style.display = 'none';
         document.getElementById('nlc-source-gcs-container').style.display = 'none';
-        
+
         // Show correct container
         document.getElementById(`nlc-source-${source}-container`).style.display = 'block';
-        
+
         // Only show mapping if we have headers
         const mappingSection = document.getElementById('nlc-mapping-section');
         const mappingDropdowns = document.getElementById('nlc-mapping-dropdowns');
-        
+
         if (State.headers && State.headers.length > 0) {
             mappingSection.style.display = 'block';
             mappingDropdowns.style.display = 'flex';
@@ -166,7 +166,7 @@ export const UI = {
     async handleGeeBlur(event) {
         const assetId = event.target.value.trim();
         if (!assetId) return;
-        
+
         try {
             this.setMappingLoading(true);
             const data = await fetchGeeColumns(assetId);
@@ -185,7 +185,7 @@ export const UI = {
     async handleGcsBlur(event) {
         const gcsUri = event.target.value.trim();
         if (!gcsUri) return;
-        
+
         try {
             this.setMappingLoading(true);
             const data = await fetchGcsColumns(gcsUri);
@@ -205,7 +205,7 @@ export const UI = {
         const mapLat = document.getElementById('nlc-map-lat');
         const mapLon = document.getElementById('nlc-map-lon');
         const mapTarget = document.getElementById('nlc-map-target');
-        
+
         if (isLoading) {
             document.getElementById('nlc-mapping-section').style.display = 'block';
             document.getElementById('nlc-mapping-dropdowns').style.display = 'flex';
@@ -233,7 +233,7 @@ export const UI = {
         mapTarget.innerHTML = optionsHtml;
 
         const findMatch = (terms) => headers.find(h => terms.includes(h.toLowerCase()));
-        
+
         const latMatch = findMatch(['lat', 'latitude', 'y']);
         if (latMatch) mapLat.value = latMatch;
 
@@ -255,21 +255,21 @@ export const UI = {
 
         try {
             const data = await parseCSVData(State.file);
-            
+
             // Plot points on MapModule.map
             if (typeof MapModule !== 'undefined' && MapModule.map) {
                 if (window.nlcGroundTruthLayer) {
                     MapModule.map.removeLayer(window.nlcGroundTruthLayer);
                 }
                 window.nlcGroundTruthLayer = L.layerGroup().addTo(MapModule.map);
-                
+
                 let numBlocks = new Set();
-                
+
                 data.forEach((row, i) => {
                     if (row.lat && row.lon) {
                         const isTrain = (i % 5 !== 0); // Mock 80/20 split
                         const color = isTrain ? '#4A90E2' : '#E85C0E'; // Blue/Orange
-                        
+
                         L.circleMarker([row.lat, row.lon], {
                             radius: 4,
                             fillColor: color,
@@ -278,11 +278,11 @@ export const UI = {
                             opacity: 1,
                             fillOpacity: 0.8
                         }).addTo(window.nlcGroundTruthLayer);
-                        
+
                         if (row.block_id) numBlocks.add(row.block_id);
                     }
                 });
-                
+
                 // Zoom to points
                 if (data.length > 0) {
                     const bounds = L.latLngBounds(data.map(r => [r.lat, r.lon]).filter(c => c[0] && c[1]));
@@ -318,11 +318,11 @@ export const UI = {
                 document.getElementById('nlc-rec-mbf').textContent = "0.5";
                 document.getElementById('nlc-rec-points').textContent = "7,775";
                 document.getElementById('nlc-rec-blocks').textContent = "1,601";
-                
+
                 document.getElementById('nlc-recommendations-section').style.display = 'block';
                 document.getElementById('btn-submit-nlc-job').style.display = 'flex';
                 if (btn) btn.style.display = 'none'; // Hide Load Data button
-                
+
                 if (typeof Toast !== 'undefined') Toast.show(`Loaded ${data.length} points for tasking`, 'success');
             }
         } catch (error) {
@@ -338,7 +338,7 @@ export const UI = {
     async submitJob() {
         const btn = document.getElementById('btn-submit-nlc-job');
         const countryNameText = document.getElementById('nlc-country-name').textContent;
-        
+
         if (!countryNameText || countryNameText === 'None (Select on map)') {
             if (typeof Toast !== 'undefined') Toast.show('Please select a country on the map first', 'error');
             return;
@@ -369,15 +369,15 @@ export const UI = {
                 if (!gcsUri) throw new Error("Please enter a GCS URI.");
                 payload.csv_url = gcsUri;
             }
-            
+
             await submitLandCoverJob(payload);
-            
+
             if (typeof Toast !== 'undefined') {
                 Toast.show('Land Map Tasking job submitted successfully', 'success');
             }
-            
+
             this.closePanel();
-            
+
             if (typeof App !== 'undefined' && App.navigate) {
                 App.navigate('jobs');
             }
