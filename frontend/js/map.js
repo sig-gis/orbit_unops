@@ -39,6 +39,10 @@ const MapModule = {
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             { attribution: 'Tiles &copy; Esri', maxZoom: 19 }
         );
+        this.baseLayers.osm = L.tileLayer(
+            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            { attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>', maxZoom: 19 }
+        );
 
         // Add the correct base layer based on theme
         const theme = document.documentElement.dataset.theme || 'light';
@@ -114,7 +118,25 @@ const MapModule = {
             })
             .catch(err => console.error('Failed to load countries.geojson:', err));
 
+        // Auto-switch to detailed street map when zoomed in close
+        this.map.on('zoomend', () => {
+            const currentZoom = this.map.getZoom();
+            const theme = document.documentElement.dataset.theme || 'light';
+            const baseMapToUse = this.baseLayers[theme];
 
+            // If zoomed in close (e.g., level 7 or higher) and currently showing the basic map
+            if (currentZoom >= 7 && this.map.hasLayer(baseMapToUse)) {
+                this.map.removeLayer(baseMapToUse);
+                this.baseLayers.osm.addTo(this.map);
+                this.baseLayers.osm.bringToBack();
+            } 
+            // If zoomed back out, switch back to the basic map
+            else if (currentZoom < 7 && this.map.hasLayer(this.baseLayers.osm)) {
+                this.map.removeLayer(this.baseLayers.osm);
+                baseMapToUse.addTo(this.map);
+                baseMapToUse.bringToBack();
+            }
+        });
 
         this._initialized = true;
     },
