@@ -25,8 +25,11 @@ const MapModule = {
 
         // Base layers (theme-aware)
         this.baseLayers.light = L.tileLayer(
-            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            { attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>', maxZoom: 19 }
+            'https://geoservices.un.org/arcgis/rest/services/ClearMap_WebTopo/MapServer/tile/{z}/{y}/{x}',
+            { 
+                attribution: 'Map data &copy; United Nations', 
+                maxZoom: 18 
+            }
         );
         this.baseLayers.dark = L.tileLayer(
             'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
@@ -100,7 +103,7 @@ const MapModule = {
         }).addTo(this.map);
 
         // Load country boundaries
-        fetch('/assets/countries.geojson')
+        fetch('/assets/UN_countries.geojson')
             .then(res => res.json())
             .then(data => {
                 window.countriesGeoJSON = data; // Store globally for spatial operations
@@ -137,7 +140,7 @@ const MapModule = {
 
         // Notify App to sync top bar
         if (typeof App !== 'undefined' && App.selectCountry) {
-            App.selectCountry(feature.properties.name, true); 
+            App.selectCountry(feature.properties.nam_en, true); 
         }
     },
 
@@ -157,7 +160,7 @@ const MapModule = {
 
         if (!layer && feature) {
             this.countryLayer.eachLayer(l => {
-                if (l.feature.properties.name === feature.properties.name) layer = l;
+                if (l.feature.properties.nam_en === feature.properties.nam_en) layer = l;
             });
         }
 

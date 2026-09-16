@@ -690,9 +690,15 @@ def retry_export(job_id: str, background_tasks: BackgroundTasks) -> ExportStatus
             raise HTTPException(status_code=400, detail="Cannot retry: original request payload not found")
 
         request_obj = ExportRequest(**job["request"])
+        
+        step = 1
+        previous_result = None
+        if job.get("result") and "geotiff_file_name_prefix" in job["result"]:
+            step = 2
+            previous_result = job["result"]
 
     _set_job(job_id, {"status": "queued", "error": None})
-    background_tasks.add_task(_run_export_job, job_id, request_obj)
+    background_tasks.add_task(_run_export_job, job_id, request_obj, step=step, previous_result=previous_result)
     
     with _jobs_lock:
         return ExportStatusResponse(**_jobs[job_id])
