@@ -294,6 +294,7 @@ export const UI = {
                     irelandFeature = window.countriesGeoJSON.features.find(f => 
                         f.properties.ADMIN === 'Ireland' || 
                         f.properties.name === 'Ireland' || 
+                        f.properties.nam_en === 'Ireland' ||
                         f.properties.ISO_A3 === 'IRL' ||
                         f.properties.ADMIN === 'Republic of Ireland'
                     );

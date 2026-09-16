@@ -721,7 +721,7 @@ const Jobs = {
                         let feature = null;
                         let targetLayer = null;
                         MapModule.countryLayer.eachLayer(l => {
-                            if (l.feature.properties.name === countryName) {
+                            if (l.feature.properties.nam_en === countryName) {
                                 feature = l.feature;
                                 targetLayer = l;
                             }

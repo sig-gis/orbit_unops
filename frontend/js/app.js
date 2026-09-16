@@ -56,7 +56,7 @@ const App = {
                     let feature = null;
                     let targetLayer = null;
                     MapModule.countryLayer.eachLayer(l => {
-                        if (l.feature.properties.name === countryName) {
+                        if (l.feature.properties.nam_en === countryName) {
                             feature = l.feature;
                             targetLayer = l;
                         }
@@ -246,15 +246,15 @@ const App = {
 
         // Sort countries alphabetically
         const features = data.features.sort((a, b) => {
-            const nameA = a.properties.name || '';
-            const nameB = b.properties.name || '';
+            const nameA = a.properties.nam_en || '';
+            const nameB = b.properties.nam_en || '';
             return nameA.localeCompare(nameB);
         });
 
         datalist.innerHTML = '';
         features.forEach(f => {
-            if (f.properties.name) {
-                datalist.innerHTML += `<option value="${f.properties.name}"></option>`;
+            if (f.properties.nam_en) {
+                datalist.innerHTML += `<option value="${f.properties.nam_en}"></option>`;
             }
         });
     },
