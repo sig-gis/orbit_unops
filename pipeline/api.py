@@ -379,11 +379,22 @@ try:
                 for job_id, job in loaded_jobs.items()
                 if isinstance(job, dict)
             }
-            for job in _jobs.values():
-                _rebuild_file_record_from_job(job)
 except Exception as e:
     print(f"Warning: Could not load jobs from GCS: {e}")
 
+try:
+    if os.path.exists("jobs.json"):
+        with open("jobs.json", "r") as f:
+            local_jobs = json.load(f)
+        if isinstance(local_jobs, dict):
+            for job_id, job in local_jobs.items():
+                if isinstance(job, dict):
+                    _jobs[str(job_id)] = _normalize_job_record(str(job_id), job)
+except Exception as e:
+    print(f"Warning: Could not load local jobs.json: {e}")
+
+for job in _jobs.values():
+    _rebuild_file_record_from_job(job)
 
 def _normalize_gcs_prefix(prefix: Optional[str]) -> str:
     return (prefix or "").strip().strip("/")

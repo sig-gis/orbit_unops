@@ -78,8 +78,8 @@ def run_tasking_endpoint(request: TaskingRunRequest, background_tasks: Backgroun
 def upload_csv(file: UploadFile = File(...)):
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported.")
-    
-    bucket_name = "orbit-lc"
+    import os
+    bucket_name = os.environ["GCS_BUCKET"]
     # Create a unique path so we don't overwrite
     object_name = f"uploads/{uuid.uuid4()}_{file.filename}"
     

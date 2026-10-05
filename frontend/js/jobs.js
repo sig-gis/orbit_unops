@@ -925,7 +925,7 @@ const Jobs = {
             try {
                 if (typeof parseGeoraster !== 'undefined' && typeof GeoRasterLayer !== 'undefined') {
                     // Using the backend proxy to bypass CORS
-                    const rawUrl = `https://storage.googleapis.com/${window.ORBIT_CONFIG?.GCS_BUCKET}/orbit-lc/_200m/ireland_national_pred_200m.tif`;
+                    const rawUrl = `https://storage.googleapis.com/${window.ORBIT_CONFIG?.GCS_BUCKET}/_200m/ireland_national_pred_200m.tif`;
                     const url_to_geotiff_file = `${API.baseUrl}/proxy-csv?url=${encodeURIComponent(rawUrl)}`;
                     const response = await fetch(url_to_geotiff_file);
                     const arrayBuffer = await response.arrayBuffer();
@@ -1033,7 +1033,7 @@ const Jobs = {
             const btnDownloadRaster = document.getElementById('btn-download-nlc-raster');
             if (btnDownloadRaster) {
                 btnDownloadRaster.onclick = () => {
-                    const rawUrl = `https://storage.googleapis.com/${window.ORBIT_CONFIG?.GCS_BUCKET}/orbit-lc/_200m/ireland_national_pred_200m.tif`;
+                    const rawUrl = `https://storage.googleapis.com/${window.ORBIT_CONFIG?.GCS_BUCKET}/_200m/ireland_national_pred_200m.tif`;
                     // Attempt to download the file directly
                     const link = document.createElement('a');
                     link.href = rawUrl;

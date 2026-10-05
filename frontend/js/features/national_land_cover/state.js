@@ -20,7 +20,7 @@ export const State = {
             sampling_scale_m: 10,
             seed: 42,
             asset_root: `projects/${window.ORBIT_CONFIG?.GCP_PROJECT_ID}/assets/space_for_time_tasking`,
-            results_bucket: "orbit-lc",
+            results_bucket: window.ORBIT_CONFIG?.GCS_BUCKET,
             results_prefix: "space_for_time_tasking/results"
         };
     },
