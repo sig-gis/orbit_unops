@@ -1,6 +1,6 @@
 import { State } from './state.js';
 import { parseCSVHeaders, parseCSVData } from './utils/csv.js';
-import { submitLandCoverJob, fetchGeeColumns, fetchGcsColumns } from './api.js';
+import { submitLandCoverJob, fetchGeeColumns, fetchGcsColumns, uploadCSV } from './api.js';
 
 export const UI = {
     panel: null,
@@ -264,129 +264,35 @@ export const UI = {
                 window.nlcGroundTruthLayer = L.layerGroup().addTo(MapModule.map);
 
                 let blocks = {};
-                let blockCounter = 0;
+                let validPointsCount = 0;
+
+                // Render up to 5000 points to avoid browser lag
+                const maxPoints = 5000;
+                const sampleRate = Math.max(1, Math.floor(data.length / maxPoints));
 
                 data.forEach((row, i) => {
-                    if (row.lat && row.lon && row.block_id) {
-                        if (!blocks[row.block_id]) {
-                            // Assign block to train or validation (mock 80/20 split based on block, not point)
-                            const isTrain = (blockCounter % 5 !== 0);
-                            blocks[row.block_id] = {
-                                isTrain: isTrain,
-                                minLat: row.lat,
-                                maxLat: row.lat,
-                                minLon: row.lon,
-                                maxLon: row.lon
-                            };
-                            blockCounter++;
-                        } else {
-                            const b = blocks[row.block_id];
-                            if (row.lat < b.minLat) b.minLat = row.lat;
-                            if (row.lat > b.maxLat) b.maxLat = row.lat;
-                            if (row.lon < b.minLon) b.minLon = row.lon;
-                            if (row.lon > b.maxLon) b.maxLon = row.lon;
+                    if (row.lat && row.lon) {
+                        validPointsCount++;
+                        if (row.block_id) {
+                            blocks[row.block_id] = true;
+                        }
+
+                        // Plot a sample of points
+                        if (i % sampleRate === 0) {
+                            // Assume target >= 0.5 is one class, else another
+                            const targetVal = parseFloat(row.target || row.class || row.y || row.label || row.loi_pct || 0);
+                            const isPeat = !isNaN(targetVal) && targetVal >= 0.5;
+                            const color = isPeat ? '#E85C0E' : '#4A90E2';
+                            
+                            L.circleMarker([parseFloat(row.lat), parseFloat(row.lon)], {
+                                radius: 4,
+                                color: color,
+                                fillColor: color,
+                                fillOpacity: 0.8,
+                                weight: 1
+                            }).addTo(window.nlcGroundTruthLayer);
                         }
                     }
-                });
-
-                let irelandFeature = null;
-                if (window.countriesGeoJSON) {
-                    irelandFeature = window.countriesGeoJSON.features.find(f => 
-                        f.properties.ADMIN === 'Ireland' || 
-                        f.properties.name === 'Ireland' || 
-                        f.properties.nam_en === 'Ireland' ||
-                        f.properties.ISO_A3 === 'IRL' ||
-                        f.properties.ADMIN === 'Republic of Ireland'
-                    );
-                }
-
-                // Define EPSG:2157 for Proj4js (Irish Transverse Mercator)
-                if (typeof proj4 !== 'undefined') {
-                    proj4.defs("EPSG:2157", "+proj=tmerc +lat_0=53.5 +lon_0=-8 +k=0.99982 +x_0=600000 +y_0=750000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs");
-                }
-
-                Object.keys(blocks).forEach(blockId => {
-                    const b = blocks[blockId];
-                    let drawLayer;
-
-                    if (typeof proj4 !== 'undefined') {
-                        // Extract X and Y indices from block_id (e.g., "45_74")
-                        const parts = blockId.split('_');
-                        const bx = parseInt(parts[0]);
-                        const by = parseInt(parts[1]);
-                        const blockSize = 10000; // 10km
-
-                        // Calculate corners in EPSG:2157 meters
-                        const minX = bx * blockSize;
-                        const minY = by * blockSize;
-                        const maxX = (bx + 1) * blockSize;
-                        const maxY = (by + 1) * blockSize;
-
-                        // Project the 4 corners back to Lat/Lon (EPSG:4326)
-                        const sw = proj4("EPSG:2157", "EPSG:4326", [minX, minY]);
-                        const se = proj4("EPSG:2157", "EPSG:4326", [maxX, minY]);
-                        const ne = proj4("EPSG:2157", "EPSG:4326", [maxX, maxY]);
-                        const nw = proj4("EPSG:2157", "EPSG:4326", [minX, maxY]);
-
-                        // Center point for boundary checking
-                        const centerLon = (sw[0] + ne[0]) / 2;
-                        const centerLat = (sw[1] + ne[1]) / 2;
-
-                        // Strict Boundary Check for Republic of Ireland
-                        if (irelandFeature && typeof turf !== 'undefined') {
-                            const centerPt = turf.point([centerLon, centerLat]);
-                            if (!turf.booleanPointInPolygon(centerPt, irelandFeature)) {
-                                return; // Skip drawing if center is not in Republic of Ireland
-                            }
-                        }
-
-                        // Leaflet needs [lat, lon]
-                        const latlngs = [
-                            [sw[1], sw[0]], // bottom left
-                            [se[1], se[0]], // bottom right
-                            [ne[1], ne[0]], // top right
-                            [nw[1], nw[0]]  // top left
-                        ];
-
-                        const strokeColor = b.isTrain ? '#4A90E2' : '#E85C0E';
-                        const fillColor = b.isTrain ? '#4A90E2' : '#E85C0E';
-                        const fillOpacity = b.isTrain ? 0.15 : 0.4;
-                        const weight = b.isTrain ? 1 : 2;
-
-                        drawLayer = L.polygon(latlngs, {
-                            color: strokeColor,
-                            weight: weight,
-                            fillColor: fillColor,
-                            fillOpacity: fillOpacity
-                        });
-                    } else {
-                        // Fallback if Proj4 is somehow missing: use point bounds
-                        let minLat = b.minLat; let maxLat = b.maxLat;
-                        let minLon = b.minLon; let maxLon = b.maxLon;
-                        if (minLat === maxLat) { minLat -= 0.02; maxLat += 0.02; }
-                        if (minLon === maxLon) { minLon -= 0.02; maxLon += 0.02; }
-
-                        if (irelandFeature && typeof turf !== 'undefined') {
-                            const centerPt = turf.point([(minLon + maxLon) / 2, (minLat + maxLat) / 2]);
-                            if (!turf.booleanPointInPolygon(centerPt, irelandFeature)) {
-                                return; 
-                            }
-                        }
-
-                        const strokeColor = b.isTrain ? '#4A90E2' : '#E85C0E';
-                        const fillColor = b.isTrain ? '#4A90E2' : '#E85C0E';
-                        const fillOpacity = b.isTrain ? 0.15 : 0.4;
-                        const weight = b.isTrain ? 1 : 2;
-
-                        drawLayer = L.rectangle([[minLat, minLon], [maxLat, maxLon]], {
-                            color: strokeColor,
-                            weight: weight,
-                            fillColor: fillColor,
-                            fillOpacity: fillOpacity
-                        });
-                    }
-
-                    drawLayer.addTo(window.nlcGroundTruthLayer);
                 });
 
                 // Zoom to points
@@ -405,12 +311,12 @@ export const UI = {
                     div.style.border = '1px solid var(--border-color)';
                     div.style.boxShadow = '0 4px 15px rgba(0,0,0,0.1)';
                     div.innerHTML = `
-                        <div style="font-weight:bold; margin-bottom:8px; font-size:0.85rem; color: var(--text-primary);">Spatial Blocking (10km)</div>
+                        <div style="font-weight:bold; margin-bottom:8px; font-size:0.85rem; color: var(--text-primary);">Ground Truth Data</div>
                         <div style="display:flex; align-items:center; margin-bottom:4px; font-size:0.75rem; color: var(--text-secondary);">
-                            <span style="display:inline-block; width:14px; height:14px; background:rgba(74, 144, 226, 0.15); border:1px solid #4A90E2; margin-right:8px;"></span> Training Blocks
+                            <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#E85C0E; margin-right:8px;"></span> Positive (Peat / Target)
                         </div>
                         <div style="display:flex; align-items:center; font-size:0.75rem; color: var(--text-secondary);">
-                            <span style="display:inline-block; width:14px; height:14px; background:rgba(232, 92, 14, 0.4); border:2px solid #E85C0E; margin-right:8px;"></span> Validation Blocks
+                            <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#4A90E2; margin-right:8px;"></span> Negative (Non-Target)
                         </div>
                     `;
                     return div;
@@ -419,11 +325,12 @@ export const UI = {
                 legendControl.addTo(MapModule.map);
                 window.nlcGroundTruthLegend = legendControl;
 
-                // Show recommendations
-                document.getElementById('nlc-rec-ppb').textContent = "5";
+                // Show dynamic recommendations
+                const totalBlocks = Object.keys(blocks).length;
+                document.getElementById('nlc-rec-ppb').textContent = "5"; // Default configurable recommendation
                 document.getElementById('nlc-rec-mbf').textContent = "0.5";
-                document.getElementById('nlc-rec-points').textContent = "7,775";
-                document.getElementById('nlc-rec-blocks').textContent = "1,601";
+                document.getElementById('nlc-rec-points').textContent = validPointsCount.toLocaleString();
+                document.getElementById('nlc-rec-blocks').textContent = totalBlocks > 0 ? totalBlocks.toLocaleString() : "N/A";
 
                 document.getElementById('nlc-recommendations-section').style.display = 'block';
                 document.getElementById('btn-submit-nlc-job').style.display = 'flex';
@@ -465,8 +372,9 @@ export const UI = {
 
             if (State.customSourceType === 'csv') {
                 if (!State.file) throw new Error("Please load data first.");
-                // Overriding upload for demo: Use hardcoded EE asset ID instead of uploading CSV
-                payload.input_asset_id = "projects/damage-control-403117/assets/peatlands-aboettcher-test-20260826_points";
+                // Upload the CSV to the backend and get the GCS URI
+                const uploadResponse = await uploadCSV(State.file);
+                payload.csv_url = uploadResponse.gcs_uri;
             } else if (State.customSourceType === 'gee') {
                 payload.input_asset_id = document.getElementById('nlc-gee-asset').value.trim();
                 if (!payload.input_asset_id) throw new Error("Please enter a GEE Asset ID.");

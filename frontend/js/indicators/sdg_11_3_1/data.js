@@ -17,7 +17,7 @@ const Data = {
             if (countryJobs.length > 0) {
                 try {
                     // Fetch the detail of the specific job to get dynamic map IDs
-                    const jobDetail = await window.API.getJob(countryJobs[0].id);
+                    const jobDetail = await API.getJob(countryJobs[0].id);
                     this.loadJobData(jobDetail, countryName, countryJobs);
                 } catch (e) {
                     console.error("Failed to fetch specific job", e);
@@ -238,7 +238,7 @@ const Data = {
             if (countryJobs && countryJobs.length > 1) {
                 UI.bindJobSelector(countryJobs, async (selectedJob) => {
                     try {
-                        const jobDetail = await window.API.getJob(selectedJob.id);
+                        const jobDetail = await API.getJob(selectedJob.id);
                         this.loadJobData(jobDetail, country, countryJobs);
                     } catch (e) {
                         this.loadJobData(selectedJob, country, countryJobs);

@@ -24,6 +24,14 @@ const App = {
     initialized: false,
 
     async init() {
+        // Fetch config from backend
+        try {
+            const config = await fetch(`${API.baseUrl}/config`).then(res => res.json());
+            window.ORBIT_CONFIG = { ...(window.ORBIT_CONFIG || {}), ...config };
+        } catch (err) {
+            console.error("Failed to load backend config:", err);
+        }
+
         // Theme
         this._initTheme();
 

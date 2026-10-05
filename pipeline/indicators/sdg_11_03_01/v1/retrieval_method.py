@@ -305,7 +305,7 @@ def run_11_03_01(
             
         # Load the pre-computed image from GCS
         geotiff_file_name_prefix = previous_result.get("geotiff_file_name_prefix", f"{base_prefix}_urban_extent")
-        gcs_bucket = previous_result.get("gcs_bucket", os.environ.get("GCS_BUCKET", "unops"))
+        gcs_bucket = previous_result.get("gcs_bucket", os.environ.get("GCS_BUCKET"))
         
         try:
             from google.cloud import storage

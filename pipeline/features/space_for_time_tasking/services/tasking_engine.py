@@ -45,7 +45,10 @@ def _wait(task):
         time.sleep(5)
     status = task.status()
     if status["state"] != "COMPLETED":
-        raise RuntimeError(status.get("error_message", status))
+        error_msg = status.get("error_message", str(status))
+        if "Type<Feature>" in error_msg:
+            raise ValueError(f"FATAL SCHEMA ERROR: {error_msg}")
+        raise RuntimeError(error_msg)
 
 
 def _wait_for_asset(asset_id):
@@ -368,397 +371,471 @@ def run_tasking(config):
         assets_to_check.append(point_asset)
     _assert_assets_absent(assets_to_check)
 
-    def feature_block_xy(feature):
-        if use_existing_block_columns:
+    assets_to_delete = []
+    gcs_blobs_to_delete = []
+    
+    if csv_url:
+        gcs_blobs_to_delete.append(csv_url)
+        assets_to_delete.append(point_asset)
+    assets_to_delete.extend([sample_asset, model_asset])
+
+    try:
+        def feature_block_xy(feature):
+            if use_existing_block_columns:
+                return ee.Dictionary(
+                    {
+                        "x": ee.Number(feature.get(block_x)),
+                        "y": ee.Number(feature.get(block_y)),
+                    }
+                )
+
+            projected = feature.geometry().centroid(1).transform(block_crs, 1)
+            coords = projected.coordinates()
             return ee.Dictionary(
                 {
-                    "x": ee.Number(feature.get(block_x)),
-                    "y": ee.Number(feature.get(block_y)),
+                    "x": ee.Number(coords.get(0)),
+                    "y": ee.Number(coords.get(1)),
                 }
             )
 
-        projected = feature.geometry().centroid(1).transform(block_crs, 1)
-        coords = projected.coordinates()
-        return ee.Dictionary(
-            {
-                "x": ee.Number(coords.get(0)),
-                "y": ee.Number(coords.get(1)),
-            }
-        )
-
-    def normalize_feature(feature):
-        row_id = ee.Algorithms.If(feature.get("_row"), feature.get("_row"), feature.id())
-        xy = feature_block_xy(feature)
-        x = ee.Number(xy.get("x"))
-        y_coord = ee.Number(xy.get("y"))
-        block_id = x.divide(block_size).floor().format().cat("_").cat(
-            y_coord.divide(block_size).floor().format()
-        )
-        return feature.set(
-            {
+        def normalize_feature(feature):
+            # CRITICAL FIX 3: ee.Algorithms.If returns an ambiguous ee.Element when mixing 
+            # Number (from _row) and String (from feature.id()). Earth Engine's asset exporter 
+            # rejects ee.Element properties as "Type<Feature>". We MUST cast it to ee.String.
+            raw_row = ee.Algorithms.If(feature.get("_row"), feature.get("_row"), feature.id())
+            row_id = ee.String(raw_row)
+            
+            xy = feature_block_xy(feature)
+            x = ee.Number(xy.get("x"))
+            y_coord = ee.Number(xy.get("y"))
+            block_id = x.divide(block_size).floor().format().cat("_").cat(
+                y_coord.divide(block_size).floor().format()
+            )
+            
+            # CRITICAL FIX: startTableIngestion consumes the lon/lat columns to create the geometry.
+            # If we don't extract them back into properties, .select(["lon", "lat"]) will request
+            # missing columns. Earth Engine infers completely missing columns as Type<Feature>,
+            # causing the asset export to crash.
+            coords = feature.geometry().coordinates()
+            
+            props = {
                 "_row": row_id,
-                "lon": ee.Number(feature.get(lon)),
-                "lat": ee.Number(feature.get(lat)),
+                "lon": ee.Number(coords.get(0)),
+                "lat": ee.Number(coords.get(1)),
                 "y": ee.Number(feature.get(target)).gte(threshold).int(),
                 "block_x_m": x,
                 "block_y_m": y_coord,
                 "block_id": block_id,
             }
+            
+            # CRITICAL FIX 2: Pre-initialize all bands to -9999.0 so that points outside the 
+            # embedding footprint STILL have the band columns. If we don't do this, chunks 
+            # outside the footprint have missing columns, and BigQuery chunk merging crashes 
+            # with Type<Feature>.
+            empty_bands = ee.Dictionary.fromLists(bands, ee.List.repeat(-9999.0, len(bands)))
+            
+            return feature.set(props).set(empty_bands)
+
+        if use_existing_block_columns:
+            pass
+
+        if input_asset_id:
+            point_asset = input_asset_id
+        else:
+            request_id = ee.data.newTaskId()[0]
+            params = {
+                "id": point_asset,
+                "sources": [{"uris": [csv_url], "xColumn": lon, "yColumn": lat}]
+            }
+            try:
+                print(f"[Tasking] Starting Table Ingestion for {request_id}...")
+                res = ee.data.startTableIngestion(request_id, params)
+                real_task_id = res['id']
+                print(f"[Tasking] Server assigned task ID: {real_task_id}")
+            except Exception as e:
+                raise RuntimeError(f"Failed to start table ingestion: {e}")
+                
+            while True:
+                status = ee.data.getTaskStatus([real_task_id])[0]
+                if status['state'] in ['COMPLETED', 'FAILED']:
+                    break
+                time.sleep(5)
+                
+            if status['state'] != 'COMPLETED':
+                raise RuntimeError(f"Table ingestion failed: {status.get('error_message', status)}")
+                
+            print(f"[Tasking] Table Ingestion {real_task_id} completed!")
+            _wait_for_asset(point_asset)
+            print(f"[Tasking] Point asset {point_asset} is now readable.")
+
+        # lon and lat properties are consumed by Earth Engine during ingestion to create geometry.
+        # We only need to check if target column exists.
+        required = [target]
+        if use_existing_block_columns:
+            required.extend([block_x, block_y])
+            
+        if not input_asset_id:
+            # point_asset was ingested, target is guaranteed to exist if it wasn't dropped
+            source_points = ee.FeatureCollection(point_asset).filter(ee.Filter.notNull(required))
+        else:
+            source_points = ee.FeatureCollection(point_asset).filter(ee.Filter.notNull(required))
+        points = source_points.map(normalize_feature)
+
+        def embedding(year):
+            return (
+                ee.ImageCollection(EMBEDDINGS)
+                .filterDate(f"{year}-01-01", f"{year + 1}-01-01")
+                .mosaic()
+                .select(bands)
+            )
+
+        # EXTREMELY CRITICAL FIX: Use reduceRegions instead of sampleRegions!
+        # sampleRegions spatially partitions the collection, and empty partitions crash 
+        # the Asset Export schema merger with "Unsupported table schema: Type<Feature>".
+        # reduceRegions simply maps the reducer over the existing collection!
+        reference_samples = embedding(reference_year).reduceRegions(
+            collection=points,
+            reducer=ee.Reducer.first(),
+            scale=scale,
+            tileScale=4,
+        )
+        
+        # Another source of Type<Feature> is heterogeneous schemas across BigQuery chunks.
+        # Points outside the embedding footprint receive no bands, leading to missing columns
+        # in some chunks. BigQuery crashes when merging these. We used to filter them out here,
+        # but filtering AFTER reduceRegions causes massive shuffles and Earth Engine "Internal error".
+        # Since we fixed the Type<Feature> crash by adding lon/lat back, we can just let
+        # the missing bands pass through as nulls and drop them safely in Pandas later.
+
+        # Explicitly select only the scalar properties and the extracted bands 
+        # to ensure complex properties (like 'lon_lat' from the CSV upload) are dropped,
+        # which prevents 'Unsupported table schema: Type<Feature>' during asset export.
+        export_properties = ["_row", "lon", "lat", "y", "block_id"] + bands
+        reference_samples = reference_samples.select(export_properties)
+
+        task = ee.batch.Export.table.toAsset(
+            collection=reference_samples,
+            description=f"{run_name}_reference_samples",
+            assetId=sample_asset,
+        )
+        print(f"[Tasking] Starting feature extraction export task...")
+        task.start()
+        _wait(task)
+        print(f"[Tasking] Feature extraction export task completed!")
+        _wait_for_asset(sample_asset)
+        print(f"[Tasking] Sample asset {sample_asset} is now readable. Computing features...")
+        reference_samples = ee.FeatureCollection(sample_asset)
+        reference = ee.data.computeFeatures(
+            {
+                "expression": reference_samples,
+                "fileFormat": "PANDAS_DATAFRAME",
+                "pageSize": 5000,
+            }
+        )
+        reference = reference.replace([-9999.0, -9999], np.nan).dropna(subset=bands).reset_index(drop=True)
+        print(f"[Tasking] Successfully downloaded {len(reference)} training features into Pandas!")
+        reference["y"] = reference["y"].astype(int)
+
+        rng = np.random.default_rng(seed)
+        blocks = np.sort(reference.block_id.unique())
+        n_test_blocks = max(1, round(test_fraction * len(blocks)))
+        test_blocks = set(rng.choice(blocks, size=n_test_blocks, replace=False))
+        train = reference[~reference.block_id.isin(test_blocks)].copy()
+        test = reference[reference.block_id.isin(test_blocks)].copy()
+        if train.y.nunique() != 2 or test.y.nunique() != 2:
+            raise ValueError("Training and held-out samples must each contain both classes")
+
+        train = train.assign(_order=np.random.default_rng(seed).random(len(train)))
+        block_order = np.random.default_rng(seed).permutation(train.block_id.unique())
+
+        def cap_per_block(frame, cap):
+            ordered = frame.sort_values(["block_id", "_order"])
+            return ordered if cap == "all" else ordered.groupby("block_id").head(int(cap))
+
+        def fit_score(frame):
+            model = RandomForestClassifier(
+                n_estimators=n_trees,
+                max_features="sqrt",
+                random_state=seed,
+                n_jobs=-1,
+            )
+            model.fit(frame[bands], frame.y)
+            probability = model.predict_proba(test[bands])[:, 1]
+            return model, probability, {
+                "n_points": int(len(frame)),
+                "n_blocks": int(frame.block_id.nunique()),
+                "auc": roc_auc_score(test.y, probability),
+                "accuracy": accuracy_score(test.y, probability >= 0.5),
+            }
+
+        point_results = []
+        for cap in point_caps:
+            _, _, result = fit_score(cap_per_block(train, cap))
+            point_results.append({"points_per_block": cap, **result})
+
+        full_auc = point_results[-1]["auc"]
+        selected_cap = next(
+            row["points_per_block"]
+            for row in point_results
+            if row["auc"] >= full_auc - auc_tolerance
+        )
+        capped_train = cap_per_block(train, selected_cap)
+
+        block_results = []
+        for fraction in block_fractions:
+            n_blocks = max(1, round(fraction * len(block_order)))
+            subset = capped_train[capped_train.block_id.isin(block_order[:n_blocks])]
+            _, _, result = fit_score(subset)
+            block_results.append({"block_fraction": fraction, **result})
+
+        full_block_auc = block_results[-1]["auc"]
+        recommended_block_fraction = next(
+            row["block_fraction"]
+            for row in block_results
+            if row["auc"] >= full_block_auc - auc_tolerance
         )
 
-    if input_asset_id:
-        required = [lon, lat, target]
-        if use_existing_block_columns:
-            required.extend([block_x, block_y])
-        source_points = ee.FeatureCollection(input_asset_id).filter(ee.Filter.notNull(required))
+        _, sklearn_probability, sklearn_metrics = fit_score(capped_train)
+        sklearn_fpr, sklearn_tpr, sklearn_thresholds = roc_curve(
+            test.y, sklearn_probability
+        )
+        sklearn_threshold = float(
+            sklearn_thresholds[np.argmax(sklearn_tpr - sklearn_fpr)]
+        )
 
-        points = source_points.map(normalize_feature)
-        point_asset = input_asset_id
-    else:
-        observations = _download_csv(csv_url)
-        required = [lon, lat, target]
-        if use_existing_block_columns:
-            required.extend([block_x, block_y])
-        missing = [column for column in required if column not in observations]
-        if missing:
-            raise ValueError(f"Missing columns: {missing}")
-        observations = observations.dropna(subset=required).reset_index(drop=True)
-        observations["_row"] = np.arange(len(observations))
+        selected_train_ids = capped_train["_row"].tolist()
+        gee_train = reference_samples.filter(
+            ee.Filter.inList("_row", selected_train_ids)
+        )
+        gee_test = reference_samples.filter(
+            ee.Filter.inList("block_id", sorted(test_blocks))
+        )
 
-        features = []
-        for record in observations.to_dict("records"):
-            properties = {
-                "_row": int(record["_row"]),
-                lon: float(record[lon]),
-                lat: float(record[lat]),
-                target: float(record[target]),
-            }
-            if use_existing_block_columns:
-                properties[block_x] = float(record[block_x])
-                properties[block_y] = float(record[block_y])
-            features.append(
-                ee.Feature(
-                    ee.Geometry.Point([float(record[lon]), float(record[lat])]),
-                    properties,
-                )
+        def gee_forest():
+            return ee.Classifier.smileRandomForest(
+                numberOfTrees=n_trees,
+                variablesPerSplit=variables_per_split,
+                minLeafPopulation=MIN_LEAF_POPULATION,
+                bagFraction=GEE_BAG_FRACTION,
+                seed=seed,
             )
-        task = ee.batch.Export.table.toAsset(
-            collection=ee.FeatureCollection(features).map(normalize_feature),
-            description=f"{run_name}_points",
-            assetId=point_asset,
+
+        gee_holdout_model = (
+            gee_forest()
+            .setOutputMode("PROBABILITY")
+            .train(features=gee_train, classProperty="y", inputProperties=bands)
+        )
+        gee_scored = ee.data.computeFeatures(
+            {
+                "expression": gee_test.classify(gee_holdout_model).select(
+                    ["y", "classification"]
+                ),
+                "fileFormat": "PANDAS_DATAFRAME",
+            }
+        )
+        gee_y = gee_scored["y"].astype(int).to_numpy()
+        gee_probability = gee_scored["classification"].astype(float).to_numpy()
+        gee_fpr, gee_tpr, gee_thresholds = roc_curve(gee_y, gee_probability)
+        gee_auc = roc_auc_score(gee_y, gee_probability)
+        gee_accuracy = accuracy_score(gee_y, gee_probability >= 0.5)
+        gee_threshold = float(gee_thresholds[np.argmax(gee_tpr - gee_fpr)])
+
+        production = reference.copy().assign(
+            _order=np.random.default_rng(seed).random(len(reference))
+        )
+        production = cap_per_block(production, selected_cap)
+        production_ids = production["_row"].tolist()
+        gee_production = reference_samples.filter(
+            ee.Filter.inList("_row", production_ids)
+        )
+        final_model = gee_forest().train(
+            features=gee_production,
+            classProperty="y",
+            inputProperties=bands,
+        )
+        task = ee.batch.Export.classifier.toAsset(
+            classifier=final_model,
+            description=f"{run_name}_random_forest",
+            assetId=model_asset,
         )
         task.start()
         _wait(task)
-        _wait_for_asset(point_asset)
-        points = ee.FeatureCollection(point_asset)
+        _wait_for_asset(model_asset)
 
-    def embedding(year):
-        return (
-            ee.ImageCollection(EMBEDDINGS)
-            .filterDate(f"{year}-01-01", f"{year + 1}-01-01")
-            .mosaic()
-            .select(bands)
+        split_data = reference[["lon", "lat", "block_id"]].copy()
+        split_data["split"] = np.where(
+            split_data.block_id.isin(test_blocks), "holdout", "train"
         )
+        sk_tn, sk_fp, sk_fn, sk_tp = confusion_matrix(
+            test.y, sklearn_probability >= 0.5
+        ).ravel()
+        gee_tn, gee_fp, gee_fn, gee_tp = confusion_matrix(
+            gee_y, gee_probability >= 0.5
+        ).ravel()
 
-    reference_samples = embedding(reference_year).sampleRegions(
-        collection=points,
-        properties=["_row", "lon", "lat", "y", "block_id"],
-        scale=scale,
-        geometries=True,
-        tileScale=4,
-    )
-    task = ee.batch.Export.table.toAsset(
-        collection=reference_samples,
-        description=f"{run_name}_reference_samples",
-        assetId=sample_asset,
-    )
-    task.start()
-    _wait(task)
-    _wait_for_asset(sample_asset)
-    reference_samples = ee.FeatureCollection(sample_asset)
-    reference = ee.data.computeFeatures(
-        {
-            "expression": reference_samples,
-            "fileFormat": "PANDAS_DATAFRAME",
-            "pageSize": 5000,
-        }
-    )
-    reference = reference.dropna(subset=bands).reset_index(drop=True)
-    reference["y"] = reference["y"].astype(int)
-
-    rng = np.random.default_rng(seed)
-    blocks = np.sort(reference.block_id.unique())
-    n_test_blocks = max(1, round(test_fraction * len(blocks)))
-    test_blocks = set(rng.choice(blocks, size=n_test_blocks, replace=False))
-    train = reference[~reference.block_id.isin(test_blocks)].copy()
-    test = reference[reference.block_id.isin(test_blocks)].copy()
-    if train.y.nunique() != 2 or test.y.nunique() != 2:
-        raise ValueError("Training and held-out samples must each contain both classes")
-
-    train = train.assign(_order=np.random.default_rng(seed).random(len(train)))
-    block_order = np.random.default_rng(seed).permutation(train.block_id.unique())
-
-    def cap_per_block(frame, cap):
-        ordered = frame.sort_values(["block_id", "_order"])
-        return ordered if cap == "all" else ordered.groupby("block_id").head(int(cap))
-
-    def fit_score(frame):
-        model = RandomForestClassifier(
-            n_estimators=n_trees,
-            max_features="sqrt",
-            random_state=seed,
-            n_jobs=-1,
-        )
-        model.fit(frame[bands], frame.y)
-        probability = model.predict_proba(test[bands])[:, 1]
-        return model, probability, {
-            "n_points": int(len(frame)),
-            "n_blocks": int(frame.block_id.nunique()),
-            "auc": roc_auc_score(test.y, probability),
-            "accuracy": accuracy_score(test.y, probability >= 0.5),
-        }
-
-    point_results = []
-    for cap in point_caps:
-        _, _, result = fit_score(cap_per_block(train, cap))
-        point_results.append({"points_per_block": cap, **result})
-
-    full_auc = point_results[-1]["auc"]
-    selected_cap = next(
-        row["points_per_block"]
-        for row in point_results
-        if row["auc"] >= full_auc - auc_tolerance
-    )
-    capped_train = cap_per_block(train, selected_cap)
-
-    block_results = []
-    for fraction in block_fractions:
-        n_blocks = max(1, round(fraction * len(block_order)))
-        subset = capped_train[capped_train.block_id.isin(block_order[:n_blocks])]
-        _, _, result = fit_score(subset)
-        block_results.append({"block_fraction": fraction, **result})
-
-    full_block_auc = block_results[-1]["auc"]
-    recommended_block_fraction = next(
-        row["block_fraction"]
-        for row in block_results
-        if row["auc"] >= full_block_auc - auc_tolerance
-    )
-
-    _, sklearn_probability, sklearn_metrics = fit_score(capped_train)
-    sklearn_fpr, sklearn_tpr, sklearn_thresholds = roc_curve(
-        test.y, sklearn_probability
-    )
-    sklearn_threshold = float(
-        sklearn_thresholds[np.argmax(sklearn_tpr - sklearn_fpr)]
-    )
-
-    selected_train_ids = capped_train["_row"].tolist()
-    gee_train = reference_samples.filter(
-        ee.Filter.inList("_row", selected_train_ids)
-    )
-    gee_test = reference_samples.filter(
-        ee.Filter.inList("block_id", sorted(test_blocks))
-    )
-
-    def gee_forest():
-        return ee.Classifier.smileRandomForest(
-            numberOfTrees=n_trees,
-            variablesPerSplit=variables_per_split,
-            minLeafPopulation=MIN_LEAF_POPULATION,
-            bagFraction=GEE_BAG_FRACTION,
-            seed=seed,
-        )
-
-    gee_holdout_model = (
-        gee_forest()
-        .setOutputMode("PROBABILITY")
-        .train(features=gee_train, classProperty="y", inputProperties=bands)
-    )
-    gee_scored = ee.data.computeFeatures(
-        {
-            "expression": gee_test.classify(gee_holdout_model).select(
-                ["y", "classification"]
-            ),
-            "fileFormat": "PANDAS_DATAFRAME",
-        }
-    )
-    gee_y = gee_scored["y"].astype(int).to_numpy()
-    gee_probability = gee_scored["classification"].astype(float).to_numpy()
-    gee_fpr, gee_tpr, gee_thresholds = roc_curve(gee_y, gee_probability)
-    gee_auc = roc_auc_score(gee_y, gee_probability)
-    gee_accuracy = accuracy_score(gee_y, gee_probability >= 0.5)
-    gee_threshold = float(gee_thresholds[np.argmax(gee_tpr - gee_fpr)])
-
-    production = reference.copy().assign(
-        _order=np.random.default_rng(seed).random(len(reference))
-    )
-    production = cap_per_block(production, selected_cap)
-    production_ids = production["_row"].tolist()
-    gee_production = reference_samples.filter(
-        ee.Filter.inList("_row", production_ids)
-    )
-    final_model = gee_forest().train(
-        features=gee_production,
-        classProperty="y",
-        inputProperties=bands,
-    )
-    task = ee.batch.Export.classifier.toAsset(
-        classifier=final_model,
-        description=f"{run_name}_random_forest",
-        assetId=model_asset,
-    )
-    task.start()
-    _wait(task)
-    _wait_for_asset(model_asset)
-
-    split_data = reference[["lon", "lat", "block_id"]].copy()
-    split_data["split"] = np.where(
-        split_data.block_id.isin(test_blocks), "holdout", "train"
-    )
-    sk_tn, sk_fp, sk_fn, sk_tp = confusion_matrix(
-        test.y, sklearn_probability >= 0.5
-    ).ravel()
-    gee_tn, gee_fp, gee_fn, gee_tp = confusion_matrix(
-        gee_y, gee_probability >= 0.5
-    ).ravel()
-
-    report = {
-        "schema_version": "1.0",
-        "run": {
-            "name": run_name,
-            "reference_year": reference_year,
-            "seed": seed,
-            "embedding_collection": EMBEDDINGS,
-            "number_of_embedding_bands": n_bands,
-            "sampling_scale_m": scale,
-            "target_column": target,
-            "target_threshold": threshold,
-            "block_size_m": block_size,
-            "block_crs": block_crs,
-            "block_coordinate_source": "columns" if use_existing_block_columns else "geometry",
-            "test_block_fraction": test_fraction,
-            "points_per_block": point_caps,
-            "block_fractions": block_fractions,
-            "auc_tolerance": auc_tolerance,
-            "csv_url": csv_url,
-            "input_asset_id": input_asset_id,
-            "columns": {
-                "longitude": lon,
-                "latitude": lat,
-                "block_x": block_x,
-                "block_y": block_y,
-                "target": target,
-            },
-        },
-        "assets": {
-            "points": point_asset,
-            "reference_samples": sample_asset,
-            "classifier": model_asset,
-        },
-        "input": {
-            "n_observations": len(reference),
-            "n_positive": int(reference.y.sum()),
-            "positive_fraction": float(reference.y.mean()),
-            "n_blocks": int(reference.block_id.nunique()),
-        },
-        "split": {
-            "n_training_points": len(train),
-            "n_test_points": len(test),
-            "n_training_blocks": int(train.block_id.nunique()),
-            "n_test_blocks": int(test.block_id.nunique()),
-            "points": split_data.to_dict("records"),
-        },
-        "experiments": {
-            "points_per_block": point_results,
-            "block_fraction": block_results,
-        },
-        "selection": {
-            "auc_tolerance": auc_tolerance,
-            "points_per_block": selected_cap,
-            "recommended_minimum_block_fraction": recommended_block_fraction,
-            "production_uses_all_blocks": True,
-            "production_points": int(len(production)),
-            "production_blocks": int(production.block_id.nunique()),
-        },
-        "sklearn": {
-            "parameters": {
-                "number_of_trees": n_trees,
-                "max_features": "sqrt",
-                "bootstrap": True,
+        report = {
+            "schema_version": "1.0",
+            "run": {
+                "name": run_name,
+                "reference_year": reference_year,
                 "seed": seed,
+                "embedding_collection": EMBEDDINGS,
+                "number_of_embedding_bands": n_bands,
+                "sampling_scale_m": scale,
+                "target_column": target,
+                "target_threshold": threshold,
+                "block_size_m": block_size,
+                "block_crs": block_crs,
+                "block_coordinate_source": "columns" if use_existing_block_columns else "geometry",
+                "test_block_fraction": test_fraction,
+                "points_per_block": point_caps,
+                "block_fractions": block_fractions,
+                "auc_tolerance": auc_tolerance,
+                "csv_url": csv_url,
+                "input_asset_id": input_asset_id,
+                "columns": {
+                    "longitude": lon,
+                    "latitude": lat,
+                    "block_x": block_x,
+                    "block_y": block_y,
+                    "target": target,
+                },
             },
-            "auc": sklearn_metrics["auc"],
-            "accuracy": sklearn_metrics["accuracy"],
-            "threshold": sklearn_threshold,
-            "confusion_matrix": {
-                "tn": int(sk_tn),
-                "fp": int(sk_fp),
-                "fn": int(sk_fn),
-                "tp": int(sk_tp),
+            "assets": {
+                "points": point_asset,
+                "reference_samples": sample_asset,
+                "classifier": model_asset,
             },
-            "roc": _roc_data(sklearn_fpr, sklearn_tpr, sklearn_thresholds),
-        },
-        "earth_engine": {
-            "parameters": {
-                "number_of_trees": n_trees,
-                "variables_per_split": variables_per_split,
-                "minimum_leaf_population": MIN_LEAF_POPULATION,
-                "bag_fraction": GEE_BAG_FRACTION,
-                "seed": seed,
+            "input": {
+                "n_observations": len(reference),
+                "n_positive": int(reference.y.sum()),
+                "positive_fraction": float(reference.y.mean()),
+                "n_blocks": int(reference.block_id.nunique()),
             },
-            "auc": float(gee_auc),
-            "accuracy": float(gee_accuracy),
-            "threshold": gee_threshold,
-            "confusion_matrix": {
-                "tn": int(gee_tn),
-                "fp": int(gee_fp),
-                "fn": int(gee_fn),
-                "tp": int(gee_tp),
+            "split": {
+                "n_training_points": len(train),
+                "n_test_points": len(test),
+                "n_training_blocks": int(train.block_id.nunique()),
+                "n_test_blocks": int(test.block_id.nunique()),
+                "points": split_data.to_dict("records"),
             },
-            "roc": _roc_data(gee_fpr, gee_tpr, gee_thresholds),
-        },
-    }
-    report_json = json.dumps(report, default=_json_default, separators=(",", ":"))
+            "experiments": {
+                "points_per_block": point_results,
+                "block_fraction": block_results,
+            },
+            "selection": {
+                "auc_tolerance": auc_tolerance,
+                "points_per_block": selected_cap,
+                "recommended_minimum_block_fraction": recommended_block_fraction,
+                "production_uses_all_blocks": True,
+                "production_points": int(len(production)),
+                "production_blocks": int(production.block_id.nunique()),
+            },
+            "sklearn": {
+                "parameters": {
+                    "number_of_trees": n_trees,
+                    "max_features": "sqrt",
+                    "bootstrap": True,
+                    "seed": seed,
+                },
+                "auc": sklearn_metrics["auc"],
+                "accuracy": sklearn_metrics["accuracy"],
+                "threshold": sklearn_threshold,
+                "confusion_matrix": {
+                    "tn": int(sk_tn),
+                    "fp": int(sk_fp),
+                    "fn": int(sk_fn),
+                    "tp": int(sk_tp),
+                },
+                "roc": _roc_data(sklearn_fpr, sklearn_tpr, sklearn_thresholds),
+            },
+            "earth_engine": {
+                "parameters": {
+                    "number_of_trees": n_trees,
+                    "variables_per_split": variables_per_split,
+                    "minimum_leaf_population": MIN_LEAF_POPULATION,
+                    "bag_fraction": GEE_BAG_FRACTION,
+                    "seed": seed,
+                },
+                "auc": float(gee_auc),
+                "accuracy": float(gee_accuracy),
+                "threshold": gee_threshold,
+                "confusion_matrix": {
+                    "tn": int(gee_tn),
+                    "fp": int(gee_fp),
+                    "fn": int(gee_fn),
+                    "tp": int(gee_tp),
+                },
+                "roc": _roc_data(gee_fpr, gee_tpr, gee_thresholds),
+            },
+        }
+        report_json = json.dumps(report, default=_json_default, separators=(",", ":"))
 
-    bucket_name = config.get("results_bucket") or os.environ["RESULTS_BUCKET"]
-    results_prefix = (config.get("results_prefix") or "").strip("/")
-    object_prefix = f"{results_prefix}/{run_name}" if results_prefix else run_name
-    object_name = f"{object_prefix}/results.json"
-    viewer_object_name = f"{object_prefix}/viewer.html"
+        bucket_name = config.get("results_bucket") or os.environ["RESULTS_BUCKET"]
+        results_prefix = (config.get("results_prefix") or "").strip("/")
+        object_prefix = f"{results_prefix}/{run_name}" if results_prefix else run_name
+        object_name = f"{object_prefix}/results.json"
+        viewer_object_name = f"{object_prefix}/viewer.html"
 
-    client = storage.Client()
-    bucket = client.bucket(bucket_name)
-    bucket.blob(object_name).upload_from_string(
-        report_json, content_type="application/json"
-    )
-    results_uri = f"gs://{bucket_name}/{object_name}"
-    results_url = public_https_url(bucket_name, object_name)
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        bucket.blob(object_name).upload_from_string(
+            report_json, content_type="application/json"
+        )
+        results_uri = f"gs://{bucket_name}/{object_name}"
+        results_url = public_https_url(bucket_name, object_name)
 
-    viewer_html = _viewer_html(report, results_url)
-    bucket.blob(viewer_object_name).upload_from_string(
-        viewer_html, content_type="text/html; charset=utf-8"
-    )
-    viewer_uri = f"gs://{bucket_name}/{viewer_object_name}"
-    viewer_url = public_https_url(bucket_name, viewer_object_name)
+        viewer_html = _viewer_html(report, results_url)
+        bucket.blob(viewer_object_name).upload_from_string(
+            viewer_html, content_type="text/html; charset=utf-8"
+        )
+        viewer_uri = f"gs://{bucket_name}/{viewer_object_name}"
+        viewer_url = public_https_url(bucket_name, viewer_object_name)
 
-    return {
-        "status": "success",
-        "run_name": run_name,
-        "results_uri": results_uri,
-        "results_url": results_url,
-        "viewer_uri": viewer_uri,
-        "viewer_url": viewer_url,
-        "assets": report["assets"],
-        "outputs": {
-            "results_json": {"gcs_uri": results_uri, "url": results_url},
-            "viewer_html": {"gcs_uri": viewer_uri, "url": viewer_url},
-        },
-        "summary": {
-            "recommended_points_per_block": selected_cap,
-            "recommended_minimum_block_fraction": recommended_block_fraction,
-            "sklearn_auc": sklearn_metrics["auc"],
-            "earth_engine_auc": float(gee_auc),
-        },
-        "results": report,
-    }
+        return {
+            "status": "success",
+            "run_name": run_name,
+            "results_uri": results_uri,
+            "results_url": results_url,
+            "viewer_uri": viewer_uri,
+            "viewer_url": viewer_url,
+            "assets": report["assets"],
+            "outputs": {
+                "results_json": {"gcs_uri": results_uri, "url": results_url},
+                "viewer_html": {"gcs_uri": viewer_uri, "url": viewer_url},
+            },
+            "summary": {
+                "recommended_points_per_block": selected_cap,
+                "recommended_minimum_block_fraction": recommended_block_fraction,
+                "sklearn_auc": sklearn_metrics["auc"],
+                "earth_engine_auc": float(gee_auc),
+            },
+            "results": report,
+        }
+    finally:
+        # Temporary Asset Lifecycle Cleanup
+        for asset in assets_to_delete:
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    ee.data.deleteAsset(asset)
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        sleep_time = 2 ** attempt
+                        print(f"Failed to delete temporary GEE asset {asset}, retrying in {sleep_time}s... (Attempt {attempt + 1}/{max_retries}): {e}")
+                        time.sleep(sleep_time)
+                    else:
+                        print(f"Failed to delete temporary GEE asset {asset} after {max_retries} attempts: {e}")
+                
+        for gcs_uri in gcs_blobs_to_delete:
+            try:
+                if gcs_uri.startswith("gs://"):
+                    parts = gcs_uri[5:].split("/", 1)
+                    if len(parts) == 2:
+                        client = storage.Client()
+                        bucket = client.bucket(parts[0])
+                        blob = bucket.blob(parts[1])
+                        blob.delete()
+            except Exception as e:
+                print(f"Failed to delete temporary GCS blob {gcs_uri}: {e}")

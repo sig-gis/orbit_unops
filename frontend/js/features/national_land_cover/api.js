@@ -42,10 +42,8 @@ export const submitLandCoverJob = async (payload) => {
     try {
         const baseUrl = (window.ORBIT_CONFIG && window.ORBIT_CONFIG.API_BASE_URL) || 'http://localhost:8000';
         
-        // For the demo, we are skipping the actual CSV upload to GCS 
-        // because we injected the hardcoded input_asset_id in ui.js instead.
         if (State.customSourceType === 'csv' && State.file) {
-            delete payload.csv_url; // Ensure csv_url is not sent
+            // No longer deleting csv_url
         }
 
         const response = await fetch(`${baseUrl}/api/tasking/run`, {

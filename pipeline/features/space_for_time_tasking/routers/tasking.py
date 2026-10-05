@@ -90,6 +90,16 @@ def upload_csv(file: UploadFile = File(...)):
         
         # Read the file contents from FastAPI and upload
         contents = file.file.read()
+
+        import pandas as pd
+        import io
+        df = pd.read_csv(io.BytesIO(contents))
+        if ".geo" in df.columns:
+            df = df.drop(columns=[".geo"])
+        if "system:index" in df.columns:
+            df = df.drop(columns=["system:index"])
+            
+        contents = df.to_csv(index=False).encode("utf-8")
         blob.upload_from_string(contents, content_type="text/csv")
         
         gcs_uri = f"gs://{bucket_name}/{object_name}"

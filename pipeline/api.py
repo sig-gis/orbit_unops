@@ -282,6 +282,14 @@ def root():
     """Redirect backend root to the FastAPI documentation."""
     return RedirectResponse(url="/docs")
 
+@app.get("/config")
+def get_config():
+    """Expose required configuration to the frontend."""
+    return {
+        "GCP_PROJECT_ID": os.environ.get("GCP_PROJECT_ID"),
+        "GCS_BUCKET": os.environ.get("GCS_BUCKET"),
+    }
+
 # POC-friendly CORS setup (tighten in production).
 app.add_middleware(
     CORSMiddleware,
@@ -354,14 +362,14 @@ def _rebuild_file_record_from_job(job: Dict[str, Any]) -> None:
     if not file_id:
         return
     result = job.get("result") or {}
-    bucket = (result.get("gcs_bucket") or os.getenv("GCS_BUCKET", "unops")).strip()
+    bucket = (result.get("gcs_bucket") or os.getenv("GCS_BUCKET")).strip()
     prefix = (result.get("gcs_prefix") or f"{os.getenv('GCS_PREFIX', 'exports/unops').strip().strip('/')}/{file_id}").strip().strip("/")
     _files[file_id] = {"bucket": bucket, "file_prefix": prefix}
 
 
 try:
     _client = _get_storage_client()
-    _bucket = _client.bucket(os.getenv("GCS_BUCKET", "unops"))
+    _bucket = _client.bucket(os.getenv("GCS_BUCKET"))
     _blob = _bucket.blob("orbit_system/jobs.json")
     if _blob.exists():
         loaded_jobs = json.loads(_blob.download_as_text())
@@ -452,7 +460,7 @@ def _build_download_url(bucket_name: str, blob_name: str) -> str:
 
 
 def _list_files_for_file_id(file_id: str) -> list[Dict[str, str]]:
-    bucket_name = os.environ.get("GCS_BUCKET", "unops")
+    bucket_name = os.environ.get("GCS_BUCKET")
     file_prefix = os.environ.get("GCS_PREFIX", "exports/unops") + f"/{file_id}"
     client = _get_storage_client()
     bucket = client.bucket(bucket_name)
@@ -474,13 +482,11 @@ def _list_files_for_file_id(file_id: str) -> list[Dict[str, str]]:
 
 def _save_jobs():
     try:
-        # cloud persistence
-        client = _get_storage_client()
-        bucket = client.bucket(os.getenv("GCS_BUCKET", "unops"))
-        blob = bucket.blob("orbit_system/jobs.json")
-        blob.upload_from_string(json.dumps(_jobs), content_type="application/json")
+        # local persistence for testing
+        with open("jobs.json", "w") as f:
+            json.dump(_jobs, f)
     except Exception as e:
-        print(f"Cloud persistence error: {e}")
+        print(f"Local persistence error: {e}")
 
 def _set_job(job_id: str, data: Dict[str, Any]) -> None:
     with _jobs_lock:
@@ -500,8 +506,8 @@ def _run_export_job(job_id: str, request: ExportRequest, step: int = 1, previous
         request_data["gcs_prefix"] = _build_file_scoped_prefix(
             os.getenv("GCS_PREFIX", "exports/unops"), file_id
         )
-        request_data["gcs_bucket"] = os.getenv("GCS_BUCKET", "unops")
-        request_data["project"] = os.getenv("GCP_PROJECT", "damage-control-403117")
+        request_data["gcs_bucket"] = os.getenv("GCS_BUCKET")
+        request_data["project"] = os.getenv("GCP_PROJECT")
 
         # Route to the correct indicator function based on indicator_id and version.
         registry_entry = _INDICATOR_REGISTRY[request.indicator_id]
@@ -671,7 +677,7 @@ def create_export(request: ExportRequest, background_tasks: BackgroundTasks) -> 
             "request": request.model_dump(),
         }
         _files[file_id] = {
-            "bucket": os.getenv("GCS_BUCKET", "unops").strip(),
+            "bucket": os.getenv("GCS_BUCKET").strip() if os.getenv("GCS_BUCKET") else None,
             "file_prefix": _build_file_scoped_prefix(os.getenv("GCS_PREFIX", "exports/unops"), file_id),
         }
 
@@ -794,7 +800,7 @@ def get_export(job_id: str, refresh_task_status: bool = True) -> ExportStatusRes
         result = job["result"]
         if result.get("layers") and result.get("geotiff_file_name_prefix"):
             try:
-                bucket_name = result.get("gcs_bucket") or os.getenv("GCS_BUCKET", "unops")
+                bucket_name = result.get("gcs_bucket") or os.getenv("GCS_BUCKET")
                 prefix = result.get("geotiff_file_name_prefix")
                 project = result.get("project")
                 
@@ -887,7 +893,7 @@ def get_download_links(fileId: str) -> FileStatusResponse:
 def delete_export_files(fileId: str) -> FileDeleteResponse:
     files = _list_files_for_file_id(fileId)
 
-    bucket_name = os.environ.get("GCS_BUCKET", "unops")
+    bucket_name = os.environ.get("GCS_BUCKET")
     client = _get_storage_client()
     bucket = client.bucket(bucket_name)
 
