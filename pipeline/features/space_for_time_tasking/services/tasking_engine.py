@@ -771,8 +771,8 @@ def run_tasking(config):
         }
         report_json = json.dumps(report, default=_json_default, separators=(",", ":"))
 
-        bucket_name = config.get("results_bucket") or os.environ["RESULTS_BUCKET"]
-        results_prefix = (config.get("results_prefix") or "").strip("/")
+        bucket_name = os.environ["RESULTS_BUCKET"]
+        results_prefix = (os.environ.get("NLC_RESULTS_PREFIX") or config.get("results_prefix") or "").strip("/")
         object_prefix = f"{results_prefix}/{run_name}" if results_prefix else run_name
         object_name = f"{object_prefix}/results.json"
         viewer_object_name = f"{object_prefix}/viewer.html"

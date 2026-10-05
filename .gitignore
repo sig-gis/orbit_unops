@@ -18,3 +18,23 @@ build/
 dist/
 *.egg-info/
 .eggs/
+
+# Environment files
+.env
+*.env
+!.env.example
+
+# Local/generated job state
+jobs.json
+exports.json
+exports_output.json
+*_job.json
+temp_*.js
+github_jobs.js
+github_sdg.js
+
+# Credentials
+credentials/
+*.service-account.json
+service-account*.json
+*credentials*.json

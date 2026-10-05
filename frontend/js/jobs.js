@@ -925,7 +925,7 @@ const Jobs = {
             try {
                 if (typeof parseGeoraster !== 'undefined' && typeof GeoRasterLayer !== 'undefined') {
                     // Using the backend proxy to bypass CORS
-                    const rawUrl = `https://storage.googleapis.com/${window.ORBIT_CONFIG?.GCS_BUCKET}/_200m/ireland_national_pred_200m.tif`;
+                    const rawUrl = window.ORBIT_CONFIG?.NLC_DEMO_COG_URL;
                     const url_to_geotiff_file = `${API.baseUrl}/proxy-csv?url=${encodeURIComponent(rawUrl)}`;
                     const response = await fetch(url_to_geotiff_file);
                     const arrayBuffer = await response.arrayBuffer();
@@ -1033,7 +1033,7 @@ const Jobs = {
             const btnDownloadRaster = document.getElementById('btn-download-nlc-raster');
             if (btnDownloadRaster) {
                 btnDownloadRaster.onclick = () => {
-                    const rawUrl = `https://storage.googleapis.com/${window.ORBIT_CONFIG?.GCS_BUCKET}/_200m/ireland_national_pred_200m.tif`;
+                    const rawUrl = window.ORBIT_CONFIG?.NLC_DEMO_COG_URL;
                     // Attempt to download the file directly
                     const link = document.createElement('a');
                     link.href = rawUrl;
@@ -1115,7 +1115,7 @@ const Jobs = {
         if (job.indicator_id === 'NLC') return 'National Land Cover';
         if (job.indicator_id === 'TASKING') return 'Space for Time Tasking';
         // Fallback for older jobs before the fix
-        if (!job.indicator_id && (job.result?.country === window.ORBIT_CONFIG?.GCP_PROJECT_ID || job.request?.classifier_type)) return 'National Land Cover';
+        if (!job.indicator_id && (job.result?.country === window.ORBIT_CONFIG?.NLC_CLOUD_PROJECT || job.request?.classifier_type)) return 'National Land Cover';
         if (!job.indicator_id) return 'Unknown Indicator';
         const config = window.ORBIT_CONFIG?.INDICATORS?.[job.indicator_id];
         return config ? config.name : `SDG ${job.indicator_id}`;
@@ -1124,7 +1124,7 @@ const Jobs = {
     _formatCountryName(job) {
         let name = job.aoi_name || job.country || job.aoi_id;
         // Fix for old NLC jobs that used the google cloud project id as the country name
-        if (name === window.ORBIT_CONFIG?.GCP_PROJECT_ID && (!job.indicator_id || job.indicator_id === 'NLC')) {
+        if (name === window.ORBIT_CONFIG?.NLC_CLOUD_PROJECT && (!job.indicator_id || job.indicator_id === 'NLC')) {
             return 'Demo (Ireland)';
         }
         return name || 'Global';

@@ -31,7 +31,18 @@ from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 from dotenv import load_dotenv
 
-load_dotenv()
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
+
+
+def _required_env(name: str) -> str:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        raise RuntimeError(
+            f"{name} environment variable is required. "
+            "Set it in the root .env or your deployment environment."
+        )
+    return value.strip()
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -286,8 +297,8 @@ def root():
 def get_config():
     """Expose required configuration to the frontend."""
     return {
-        "GCP_PROJECT_ID": os.environ.get("GCP_PROJECT_ID"),
-        "GCS_BUCKET": os.environ.get("GCS_BUCKET"),
+        "GCP_PROJECT": _required_env("GCP_PROJECT"),
+        "GCS_BUCKET": _required_env("GCS_BUCKET"),
     }
 
 # POC-friendly CORS setup (tighten in production).
@@ -362,14 +373,14 @@ def _rebuild_file_record_from_job(job: Dict[str, Any]) -> None:
     if not file_id:
         return
     result = job.get("result") or {}
-    bucket = (result.get("gcs_bucket") or os.getenv("GCS_BUCKET")).strip()
-    prefix = (result.get("gcs_prefix") or f"{os.getenv('GCS_PREFIX', 'exports/unops').strip().strip('/')}/{file_id}").strip().strip("/")
+    bucket = (result.get("gcs_bucket") or _required_env("GCS_BUCKET")).strip()
+    prefix = (result.get("gcs_prefix") or f"{_required_env('GCS_PREFIX').strip().strip('/')}/{file_id}").strip().strip("/")
     _files[file_id] = {"bucket": bucket, "file_prefix": prefix}
 
 
 try:
     _client = _get_storage_client()
-    _bucket = _client.bucket(os.getenv("GCS_BUCKET"))
+    _bucket = _client.bucket(_required_env("GCS_BUCKET"))
     _blob = _bucket.blob("orbit_system/jobs.json")
     if _blob.exists():
         loaded_jobs = json.loads(_blob.download_as_text())
@@ -471,8 +482,8 @@ def _build_download_url(bucket_name: str, blob_name: str) -> str:
 
 
 def _list_files_for_file_id(file_id: str) -> list[Dict[str, str]]:
-    bucket_name = os.environ.get("GCS_BUCKET")
-    file_prefix = os.environ.get("GCS_PREFIX", "exports/unops") + f"/{file_id}"
+    bucket_name = _required_env("GCS_BUCKET")
+    file_prefix = _required_env("GCS_PREFIX") + f"/{file_id}"
     client = _get_storage_client()
     bucket = client.bucket(bucket_name)
 
@@ -515,10 +526,10 @@ def _run_export_job(job_id: str, request: ExportRequest, step: int = 1, previous
         file_id = _jobs[job_id]["file_id"]
         request_data = request.model_dump()
         request_data["gcs_prefix"] = _build_file_scoped_prefix(
-            os.getenv("GCS_PREFIX", "exports/unops"), file_id
+            _required_env("GCS_PREFIX"), file_id
         )
-        request_data["gcs_bucket"] = os.getenv("GCS_BUCKET")
-        request_data["project"] = os.getenv("GCP_PROJECT")
+        request_data["gcs_bucket"] = _required_env("GCS_BUCKET")
+        request_data["project"] = _required_env("GCP_PROJECT")
 
         # Route to the correct indicator function based on indicator_id and version.
         registry_entry = _INDICATOR_REGISTRY[request.indicator_id]
@@ -688,8 +699,8 @@ def create_export(request: ExportRequest, background_tasks: BackgroundTasks) -> 
             "request": request.model_dump(),
         }
         _files[file_id] = {
-            "bucket": os.getenv("GCS_BUCKET").strip() if os.getenv("GCS_BUCKET") else None,
-            "file_prefix": _build_file_scoped_prefix(os.getenv("GCS_PREFIX", "exports/unops"), file_id),
+            "bucket": _required_env("GCS_BUCKET"),
+            "file_prefix": _build_file_scoped_prefix(_required_env("GCS_PREFIX"), file_id),
         }
 
     background_tasks.add_task(_run_export_job, job_id, request)
@@ -811,7 +822,7 @@ def get_export(job_id: str, refresh_task_status: bool = True) -> ExportStatusRes
         result = job["result"]
         if result.get("layers") and result.get("geotiff_file_name_prefix"):
             try:
-                bucket_name = result.get("gcs_bucket") or os.getenv("GCS_BUCKET")
+                bucket_name = result.get("gcs_bucket") or _required_env("GCS_BUCKET")
                 prefix = result.get("geotiff_file_name_prefix")
                 project = result.get("project")
                 
@@ -904,7 +915,7 @@ def get_download_links(fileId: str) -> FileStatusResponse:
 def delete_export_files(fileId: str) -> FileDeleteResponse:
     files = _list_files_for_file_id(fileId)
 
-    bucket_name = os.environ.get("GCS_BUCKET")
+    bucket_name = _required_env("GCS_BUCKET")
     client = _get_storage_client()
     bucket = client.bucket(bucket_name)
 

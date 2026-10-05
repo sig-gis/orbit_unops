@@ -6,7 +6,7 @@ export const State = {
     // Hardcoded advanced parameters for all Tasking jobs
     get taskingDefaults() {
         return {
-            cloud_project: window.ORBIT_CONFIG?.GCP_PROJECT_ID,
+            cloud_project: window.ORBIT_CONFIG?.NLC_CLOUD_PROJECT,
             block_crs: "EPSG:3857",
             target_threshold: 30,
             reference_year: 2022,
@@ -19,9 +19,8 @@ export const State = {
             number_of_embedding_bands: 64,
             sampling_scale_m: 10,
             seed: 42,
-            asset_root: `projects/${window.ORBIT_CONFIG?.GCP_PROJECT_ID}/assets/space_for_time_tasking`,
-            results_bucket: window.ORBIT_CONFIG?.GCS_BUCKET,
-            results_prefix: "space_for_time_tasking/results"
+            asset_root: window.ORBIT_CONFIG?.NLC_ASSET_ROOT,
+            results_prefix: window.ORBIT_CONFIG?.NLC_RESULTS_PREFIX
         };
     },
     

@@ -3,6 +3,7 @@ import uuid
 import traceback
 import csv
 import io
+import os
 import ee
 from fastapi import APIRouter, BackgroundTasks, File, UploadFile, HTTPException
 from datetime import datetime, timezone
@@ -78,8 +79,12 @@ def run_tasking_endpoint(request: TaskingRunRequest, background_tasks: Backgroun
 def upload_csv(file: UploadFile = File(...)):
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported.")
-    import os
-    bucket_name = os.environ["GCS_BUCKET"]
+    bucket_name = os.environ.get("NLC_UPLOAD_BUCKET") or os.environ.get("RESULTS_BUCKET")
+    if not bucket_name:
+        raise HTTPException(
+            status_code=500,
+            detail="NLC_UPLOAD_BUCKET or RESULTS_BUCKET environment variable is required.",
+        )
     # Create a unique path so we don't overwrite
     object_name = f"uploads/{uuid.uuid4()}_{file.filename}"
     
