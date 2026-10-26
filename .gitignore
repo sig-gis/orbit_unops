@@ -24,14 +24,19 @@ dist/
 *.env
 !.env.example
 
-# Local/generated job state
-jobs.json
-exports.json
-exports_output.json
-*_job.json
+# Local/generated job state and json dumps
+*.json
 temp_*.js
 github_jobs.js
 github_sdg.js
+
+# Deploy scripts, tests, and internal docs
+deploy.ps1
+*.pdf
+test_*.py
+*_test.py
+tests/
+test/
 
 # Credentials
 credentials/

@@ -15,13 +15,19 @@ const Data = {
             );
 
             if (countryJobs.length > 0) {
+                // If the most recent run lacks table metrics, pick the completed run with full metrics by default
+                let targetJob = countryJobs[0];
+                const fullRun = countryJobs.find(j => j.result?.task_ids?.LCRPGR_5yr_10m || j.result?.task_ids?.LCRPGR_annual_10m);
+                if (fullRun) {
+                    targetJob = fullRun;
+                }
                 try {
                     // Fetch the detail of the specific job to get dynamic map IDs
-                    const jobDetail = await API.getJob(countryJobs[0].id);
+                    const jobDetail = await API.getJob(targetJob.id);
                     this.loadJobData(jobDetail, countryName, countryJobs);
                 } catch (e) {
                     console.error("Failed to fetch specific job", e);
-                    this.loadJobData(countryJobs[0], countryName, countryJobs);
+                    this.loadJobData(targetJob, countryName, countryJobs);
                 }
             } else {
                 UI.setEmpty(`No completed analysis found for ${countryName}. Use the "Run New Analysis" button above to generate one.`);
@@ -58,15 +64,18 @@ const Data = {
                 return match ? match.url : null;
             };
 
-            const parseCSV = (suffix) => new Promise((resolve, reject) => {
+            const parseCSV = (suffix) => new Promise((resolve) => {
                 const url = getCsvUrl(suffix);
                 if (!url) return resolve([]);
                 const proxyUrl = `${API.baseUrl}/proxy-csv?url=${encodeURIComponent(url)}`;
                 Papa.parse(proxyUrl, {
                     download: true, header: true, dynamicTyping: true, skipEmptyLines: true,
                     transformHeader: h => h.trim(),
-                    complete: (results) => resolve(results.data),
-                    error: (err) => reject(err)
+                    complete: (results) => resolve(results.data || []),
+                    error: (err) => {
+                        console.warn(`Could not load CSV for ${suffix}:`, err);
+                        resolve([]);
+                    }
                 });
             });
 
@@ -85,27 +94,42 @@ const Data = {
     },
 
     _renderDashboard(annualData, areaData, spanData, statsData, country, job, countryJobs) {
-        // Filter and deduplicate
-        const validAnnual = Array.from(
-            new Map(annualData.filter(d => 
-                d.window !== undefined && 
+        // Filter and deduplicate annual data
+        let validAnnual = Array.from(
+            new Map((annualData || []).filter(d => 
+                d && d.window !== undefined && 
                 d.LCR !== undefined && 
                 d.PGR !== undefined &&
-                d.urban_method === 'RF' &&
-                d.pop_source === 'GHS_POP'
+                String(d.urban_method).toUpperCase() === 'RF' &&
+                String(d.pop_source).toUpperCase() === 'GHS_POP'
             ).map(d => [d.window, d])).values()
         );
+        if (validAnnual.length === 0) {
+            validAnnual = Array.from(
+                new Map((annualData || []).filter(d => 
+                    d && d.window !== undefined && 
+                    d.LCR !== undefined && 
+                    d.PGR !== undefined
+                ).map(d => [d.window, d])).values()
+            );
+        }
 
         const validArea = Array.from(
-            new Map(areaData.filter(d => d.year !== undefined && d.RF_sm_km2 !== undefined)
+            new Map((areaData || []).filter(d => d && d.year !== undefined && (d.RF_sm_km2 !== undefined || d.area_km2 !== undefined))
                 .map(d => [d.year, d])).values()
         );
 
-        const validSpans = spanData.filter(d => 
-            d.LCRPGR !== undefined &&
-            d.urban_method === 'RF' &&
-            d.pop_source === 'GHS_POP'
+        let validSpans = (spanData || []).filter(d => 
+            d && d.LCRPGR !== undefined &&
+            String(d.urban_method).toUpperCase() === 'RF' &&
+            String(d.pop_source).toUpperCase() === 'GHS_POP'
         );
+        if (validSpans.length === 0) {
+            validSpans = (spanData || []).filter(d => d && d.LCRPGR !== undefined && String(d.urban_method).toUpperCase() === 'RF');
+        }
+        if (validSpans.length === 0) {
+            validSpans = (spanData || []).filter(d => d && d.LCRPGR !== undefined);
+        }
         const validSpan = validSpans.length > 0 ? validSpans[0] : null;
 
         let overallRatio = "N/A";
@@ -114,19 +138,33 @@ const Data = {
         let bupc0 = "N/A", bupc1 = "N/A";
 
         if (validSpan && validSpan.LCRPGR !== undefined) {
-            const lcrpgr = validSpan.LCRPGR;
-            overallRatio = lcrpgr.toFixed(2);
+            const lcrpgr = Number(validSpan.LCRPGR);
+            overallRatio = isNaN(lcrpgr) ? "N/A" : lcrpgr.toFixed(2);
             if (lcrpgr > 1) { verdict = "SPRAWLING"; verdictColor = "#FF5722"; }
             else if (lcrpgr > 0 && lcrpgr <= 1) { verdict = "DENSIFYING"; verdictColor = "#4CAF50"; }
             else { verdict = "DENSIFYING"; verdictColor = "#4CAF50"; }
 
-            bupc0 = validSpan.BUpc_t0_m2 ? Math.round(validSpan.BUpc_t0_m2) : "N/A";
-            bupc1 = validSpan.BUpc_t1_m2 ? Math.round(validSpan.BUpc_t1_m2) : "N/A";
+            bupc0 = validSpan.BUpc_t0_m2 != null ? Math.round(Number(validSpan.BUpc_t0_m2)) : "N/A";
+            bupc1 = validSpan.BUpc_t1_m2 != null ? Math.round(Number(validSpan.BUpc_t1_m2)) : "N/A";
+        } else if (validAnnual.length > 0) {
+            const lastAnnual = validAnnual[validAnnual.length - 1];
+            if (lastAnnual.LCRPGR !== undefined) {
+                const lcrpgr = Number(lastAnnual.LCRPGR);
+                overallRatio = isNaN(lcrpgr) ? "N/A" : lcrpgr.toFixed(2);
+                if (lcrpgr > 1) { verdict = "SPRAWLING"; verdictColor = "#FF5722"; }
+                else { verdict = "DENSIFYING"; verdictColor = "#4CAF50"; }
+            }
+            if (lastAnnual.BUpc_t0_m2 != null) bupc0 = Math.round(Number(lastAnnual.BUpc_t0_m2));
+            if (lastAnnual.BUpc_t1_m2 != null) bupc1 = Math.round(Number(lastAnnual.BUpc_t1_m2));
         }
 
         let aiAccuracy = "N/A";
-        if (statsData && statsData.length > 0 && statsData[0].validation_accuracy) {
-            aiAccuracy = (statsData[0].validation_accuracy * 100).toFixed(1) + "%";
+        if (statsData && statsData.length > 0 && statsData[0].validation_accuracy !== undefined) {
+            aiAccuracy = (Number(statsData[0].validation_accuracy) * 100).toFixed(1) + "%";
+        } else if (job?.result?.metrics?.validation_accuracy !== undefined) {
+            aiAccuracy = (Number(job.result.metrics.validation_accuracy) * 100).toFixed(1) + "%";
+        } else if (job?.result?.validation_accuracy !== undefined) {
+            aiAccuracy = (Number(job.result.validation_accuracy) * 100).toFixed(1) + "%";
         }
 
         let initialRasterBtnHtml = `<i data-lucide="eye" class="icon sm"></i> Show Raster`;

@@ -757,6 +757,8 @@ const Jobs = {
 
 
     async _viewNLCResults(job) {
+        const results = job.result?.results || job.result;
+
         // Switch to map view
         if (typeof App !== 'undefined' && App.navigate) {
             App.navigate('map');
@@ -919,22 +921,30 @@ const Jobs = {
                 });
             }
 
-            // Load GeoTIFF and calculate Total Area using GeoRaster
-            document.getElementById('nlc-analytics-area').textContent = 'Loading...';
-            
-            try {
-                if (typeof parseGeoraster !== 'undefined' && typeof GeoRasterLayer !== 'undefined') {
-                    // Using the backend proxy to bypass CORS
-                    const rawUrl = window.ORBIT_CONFIG?.NLC_DEMO_COG_URL;
-                    const url_to_geotiff_file = `${API.baseUrl}/proxy-csv?url=${encodeURIComponent(rawUrl)}`;
-                    const response = await fetch(url_to_geotiff_file);
-                    const arrayBuffer = await response.arrayBuffer();
-                    const georaster = await parseGeoraster(arrayBuffer);
+            // Auto Inference Map Rendering (TiTiler)
+            const inference = results?.inference || job.result?.inference || job.result?.results?.inference || (job.result?.report && job.result.report.inference);
+            let inferenceMapUrl = inference?.results_url;
+            if (!inferenceMapUrl && inference?.results_uri) {
+                inferenceMapUrl = inference.results_uri.replace(/^gs:\/\/([^\/]+)\/(.+)$/, 'https://storage.googleapis.com/$1/$2');
+            }
+
+            if (inferenceMapUrl) {
+                try {
+                    document.getElementById('nlc-analytics-area').textContent = 'Loading Probability Map...';
                     
-                    // Add dynamic legend
-                    if (window.nlcLegend) {
-                        MapModule.map.removeControl(window.nlcLegend);
+                    // 1. Fetch bounds from TiTiler to zoom the map
+                    const boundsUrl = `${API.baseUrl}/cog/bounds?url=${encodeURIComponent(inferenceMapUrl)}`;
+                    const boundsResponse = await fetch(boundsUrl);
+                    if (boundsResponse.ok) {
+                        const boundsData = await boundsResponse.json();
+                        // bounds is [minx, miny, maxx, maxy] (lng, lat)
+                        if (boundsData.bounds) {
+                            const [minx, miny, maxx, maxy] = boundsData.bounds;
+                            MapModule.map.fitBounds([[miny, minx], [maxy, maxx]]);
+                        }
                     }
+
+                    if (window.nlcLegend) MapModule.map.removeControl(window.nlcLegend);
                     const legend = L.control({ position: 'bottomright' });
                     legend.onAdd = function () {
                         const div = L.DomUtil.create('div', 'info legend');
@@ -944,12 +954,17 @@ const Jobs = {
                         div.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
                         div.style.border = '1px solid var(--border-color)';
                         div.style.color = 'var(--text-main)';
-                        div.style.fontFamily = 'var(--font-family)';
                         div.innerHTML = `
-                            <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px;">Classification</div>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <div style="width: 16px; height: 16px; background: #8B4513; border-radius: 4px; border: 1px solid rgba(0,0,0,0.2);"></div>
-                                <span style="font-size: 0.85rem; color: var(--text-main);">Peat Soil</span>
+                            <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px;">Target Classification</div>
+                            <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <div style="width: 14px; height: 14px; background: #bd0026; border-radius: 2px;"></div>
+                                    <span>Target Detection (Class 1)</span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <div style="width: 14px; height: 14px; border: 1px dashed var(--border-color); background: transparent; border-radius: 2px;"></div>
+                                    <span>Background (Transparent)</span>
+                                </div>
                             </div>
                         `;
                         return div;
@@ -957,49 +972,26 @@ const Jobs = {
                     legend.addTo(MapModule.map);
                     window.nlcLegend = legend;
 
-                    const layer = new GeoRasterLayer({
-                        georaster: georaster,
+                    // 2. Load the dynamic tiles from TiTiler
+                    // bidx=1&nodata=0 ensures the background (0 pixels) is 100% transparent (no yellow background)
+                    const tileUrl = `${API.baseUrl}/cog/tiles/WebMercatorQuad/{z}/{x}/{y}?url=${encodeURIComponent(inferenceMapUrl)}&bidx=1&nodata=0&rescale=0.1,1.0&colormap_name=ylorrd`;
+                    
+                    const layer = L.tileLayer(tileUrl, {
                         opacity: 0.85,
-                        pixelValuesToColorFn: values => {
-                            const loi = values[0];
-                            if (loi >= 30.0) {
-                                return '#8B4513';
-                            }
-                            return null;
-                        },
-                        resolution: 128
+                        maxZoom: 20
                     });
                     
-                    if (window.nlcRasterLayer) {
-                        MapModule.map.removeLayer(window.nlcRasterLayer);
-                    }
+                    if (window.nlcRasterLayer) MapModule.map.removeLayer(window.nlcRasterLayer);
                     window.nlcRasterLayer = layer;
                     layer.addTo(MapModule.map);
                     
-                    // Iterate the raw data array once to calculate total area
-                    let totalPeatPixels = 0;
-                    const data = georaster.values[0]; // Band 1
-                    for (let y = 0; y < georaster.height; y++) {
-                        for (let x = 0; x < georaster.width; x++) {
-                            const val = data[y][x];
-                            // Check for valid data and threshold (>= 30.0)
-                            if (val !== georaster.noDataValue && val >= 30.0) {
-                                totalPeatPixels++;
-                            }
-                        }
-                    }
-                    
-                    // 200m x 200m pixels = 40,000 sq meters = 0.04 sq km per pixel
-                    const areaSqKm = totalPeatPixels * 0.04; 
-                    document.getElementById('nlc-analytics-area').textContent = areaSqKm.toLocaleString(undefined, { maximumFractionDigits: 0 });
-                    
-                    MapModule.map.fitBounds(layer.getBounds());
-                } else {
-                    document.getElementById('nlc-analytics-area').textContent = 'Ext missing';
+                    document.getElementById('nlc-analytics-area').textContent = 'Map Loaded';
+                } catch (err) {
+                    console.error("TiTiler error:", err);
+                    document.getElementById('nlc-analytics-area').textContent = 'Map Error';
                 }
-            } catch (err) {
-                console.error("GeoRaster error:", err);
-                document.getElementById('nlc-analytics-area').textContent = 'Error';
+            } else {
+                document.getElementById('nlc-analytics-area').textContent = 'No Map Generated';
             }
 
         } catch (error) {
@@ -1007,6 +999,25 @@ const Jobs = {
             if (typeof Toast !== 'undefined') Toast.show('Error parsing classification results', 'error');
         }
 
+        // Always bind raster download button to current job
+        const btnDownloadRaster = document.getElementById('btn-download-nlc-raster');
+        if (btnDownloadRaster) {
+            const currentInference = results?.inference || job.result?.inference || job.result?.results?.inference;
+            const currentRawUrl = currentInference?.results_url || (currentInference?.results_uri ? currentInference.results_uri.replace(/^gs:\/\/([^\/]+)\/(.+)$/, 'https://storage.googleapis.com/$1/$2') : null);
+            btnDownloadRaster.onclick = () => {
+                if (!currentRawUrl) {
+                    if (typeof Toast !== 'undefined') Toast.show('Map not yet generated.', 'error');
+                    return;
+                }
+                const link = document.createElement('a');
+                link.href = currentRawUrl;
+                link.target = '_blank';
+                link.download = `${job.aoi_name || job.aoi_id || 'national'}_pred.tif`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+        }
 
         // Hook up panel buttons if not already hooked
         if (!nlcAnalyticsPanel.dataset.hooked) {
@@ -1029,21 +1040,6 @@ const Jobs = {
                 document.getElementById('nlc-analytics-panel-restore').style.display = 'none';
                 nlcAnalyticsPanel.style.display = 'flex';
             };
-            
-            const btnDownloadRaster = document.getElementById('btn-download-nlc-raster');
-            if (btnDownloadRaster) {
-                btnDownloadRaster.onclick = () => {
-                    const rawUrl = window.ORBIT_CONFIG?.NLC_DEMO_COG_URL;
-                    // Attempt to download the file directly
-                    const link = document.createElement('a');
-                    link.href = rawUrl;
-                    link.target = '_blank';
-                    link.download = 'ireland_national_pred_200m.tif';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                };
-            }
             
             // Ground Truth Toggle
             document.getElementById('nlc-toggle-ground-truth').onchange = (e) => {
@@ -1112,20 +1108,35 @@ const Jobs = {
     },
 
     _formatIndicatorName(job) {
-        if (job.indicator_id === 'NLC') return 'National Land Cover';
-        if (job.indicator_id === 'TASKING') return 'Space for Time Tasking';
-        // Fallback for older jobs before the fix
-        if (!job.indicator_id && (job.result?.country === window.ORBIT_CONFIG?.NLC_CLOUD_PROJECT || job.request?.classifier_type)) return 'National Land Cover';
+        if (job.indicator_id === 'NLC' || job.indicator_id === 'TASKING' || job.module_name === 'national landcover' || job.module_name === 'national land cover') {
+            return 'National Land Cover';
+        }
+        // Detect Land Cover / Tasking jobs by payload markers
+        if (job.result && (job.result.inference || job.result.assets || job.result.results?.inference || job.result.results?.run || job.parameters?.csv_url || job.request?.csv_url)) {
+            return 'National Land Cover';
+        }
+        if (!job.indicator_id && (job.result?.country === window.ORBIT_CONFIG?.NLC_CLOUD_PROJECT || job.request?.classifier_type)) {
+            return 'National Land Cover';
+        }
         if (!job.indicator_id) return 'Unknown Indicator';
         const config = window.ORBIT_CONFIG?.INDICATORS?.[job.indicator_id];
-        return config ? config.name : `SDG ${job.indicator_id}`;
+        return config ? config.name : (String(job.indicator_id).startsWith('SDG') ? job.indicator_id : `SDG ${job.indicator_id}`);
     },
 
     _formatCountryName(job) {
         let name = job.aoi_name || job.country || job.aoi_id;
-        // Fix for old NLC jobs that used the google cloud project id as the country name
-        if (name === window.ORBIT_CONFIG?.NLC_CLOUD_PROJECT && (!job.indicator_id || job.indicator_id === 'NLC')) {
-            return 'Demo (Ireland)';
+        // If generic fallback, search deep in parameters and results
+        if (!name || name === 'custom' || name === 'Custom AOI' || name === 'Global') {
+            name = job.request?.aoi_name
+                || job.request?.country
+                || job.parameters?.aoi_name
+                || job.parameters?.country
+                || job.result?.aoi_name
+                || job.result?.country
+                || job.result?.inference?.aoi_name
+                || job.result?.results?.inference?.aoi_name
+                || job.result?.results?.run?.aoi_name
+                || name;
         }
         return name || 'Global';
     },
@@ -1140,16 +1151,6 @@ const Jobs = {
         if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
         if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
         return date.toLocaleDateString();
-    },
-
-    startPolling() {
-        this._pollInterval = setInterval(() => {
-            if (Auth.isAuthenticated()) this.loadJobs();
-        }, 5000);
-    },
-
-    stopPolling() {
-        if (this._pollInterval) clearInterval(this._pollInterval);
     },
 
     _translateError(errorMsg) {

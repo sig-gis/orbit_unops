@@ -11,7 +11,6 @@ import os
 from typing import Any, Dict, Optional
 
 import ee
-import yaml
 
 if __package__:
     from ....utils.gee_common import (
@@ -35,8 +34,33 @@ else:
     from utils.ae_specific import embeddings_by_year, generate_stratified_sample
 
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
-with open(_CONFIG_PATH, "r") as _f:
-    _CONFIG = yaml.safe_load(_f)
+try:
+    import yaml
+    with open(_CONFIG_PATH, "r") as _f:
+        _CONFIG = yaml.safe_load(_f)
+except ImportError:
+    _CONFIG = {
+        "datasets": {
+            "countries": "FAO/GAUL_SIMPLIFIED_500m/2015/level0",
+            "ghs_built": "JRC/GHSL/P2023A/GHS_BUILT_S",
+            "dynamic_world": "GOOGLE/DYNAMICWORLD/V1",
+            "ghs_pop": "JRC/GHSL/P2023A/GHS_POP",
+            "worldpop": "WorldPop/GP/100m/pop",
+            "gpw411": "CIESIN/GPWv411/GPW_Population_Count",
+            "embeddings": "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL",
+        },
+        "parameters": {
+            "sample_points": 1000,
+            "sample_scale": 190,
+            "embedding_scale": 10,
+            "threshold": 0.75,
+            "trees": 100,
+            "seed": 42,
+            "span_target": 5,
+            "area_scale": 10,
+            "pop_anchor_years": [2015, 2020],
+        }
+    }
 _DATASETS = _CONFIG["datasets"]
 _PARAMS = _CONFIG["parameters"]
 

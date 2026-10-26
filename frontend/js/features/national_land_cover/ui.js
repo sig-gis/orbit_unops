@@ -107,6 +107,18 @@ export const UI = {
         if (this.panel) this.panel.style.display = 'flex';
         const restoreBtn = document.getElementById('nlc-panel-restore');
         if (restoreBtn) restoreBtn.style.display = 'none';
+
+        // Keep selected country in sync with App state
+        const nlcCountry = document.getElementById('nlc-country-name');
+        if (nlcCountry) {
+            if (typeof App !== 'undefined' && App.currentCountry) {
+                nlcCountry.textContent = App.currentCountry;
+                nlcCountry.style.color = 'var(--brand-secondary)';
+            } else {
+                nlcCountry.textContent = 'None (Select on map or search)';
+                nlcCountry.style.color = 'var(--text-muted)';
+            }
+        }
     },
 
     closePanel() {
@@ -313,7 +325,7 @@ export const UI = {
                     div.innerHTML = `
                         <div style="font-weight:bold; margin-bottom:8px; font-size:0.85rem; color: var(--text-primary);">Ground Truth Data</div>
                         <div style="display:flex; align-items:center; margin-bottom:4px; font-size:0.75rem; color: var(--text-secondary);">
-                            <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#E85C0E; margin-right:8px;"></span> Positive (Peat / Target)
+                            <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#E85C0E; margin-right:8px;"></span> Positive (Target)
                         </div>
                         <div style="display:flex; align-items:center; font-size:0.75rem; color: var(--text-secondary);">
                             <span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:#4A90E2; margin-right:8px;"></span> Negative (Non-Target)
@@ -350,10 +362,24 @@ export const UI = {
 
     async submitJob() {
         const btn = document.getElementById('btn-submit-nlc-job');
-        const countryNameText = document.getElementById('nlc-country-name').textContent;
+        let selectedCountry = (typeof App !== 'undefined' && App.currentCountry) ? App.currentCountry.trim() : '';
+        if (!selectedCountry) {
+            const countryEl = document.getElementById('nlc-country-name');
+            const txt = countryEl ? countryEl.textContent.trim() : '';
+            if (txt && !txt.toLowerCase().includes('select') && txt.toLowerCase() !== 'none') {
+                selectedCountry = txt;
+            }
+        }
 
-        if (!countryNameText || countryNameText === 'None (Select on map)') {
-            if (typeof Toast !== 'undefined') Toast.show('Please select a country on the map first', 'error');
+        if (!selectedCountry) {
+            if (typeof Toast !== 'undefined') {
+                Toast.show('Please select a country on the map or search bar before running the job.', 'error');
+            }
+            const countryEl = document.getElementById('nlc-country-name');
+            if (countryEl) {
+                countryEl.style.color = '#FF5722';
+                countryEl.textContent = 'Country Required (Select on map or search)';
+            }
             return;
         }
 
@@ -362,7 +388,8 @@ export const UI = {
         try {
             let payload = {
                 ...State.taskingDefaults,
-                aoi_name: countryNameText,
+                aoi_name: selectedCountry,
+                country: selectedCountry,
                 run_name: "custom_run_" + Date.now(),
                 latitude_column: document.getElementById('nlc-map-lat').value,
                 longitude_column: document.getElementById('nlc-map-lon').value,

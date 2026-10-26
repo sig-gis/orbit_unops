@@ -124,18 +124,47 @@ const API = {
             "failed": "FAILED",
             "cancelled": "CANCELLED"
         };
+        // Resolve indicator: check indicator_id, module_name, or result attributes
+        const isLandCover = sdkData.indicator_id === 'TASKING'
+            || sdkData.indicator_id === 'NLC'
+            || sdkData.module_name === 'national landcover'
+            || sdkData.module_name === 'national land cover'
+            || (sdkData.result && (sdkData.result.inference || sdkData.result.assets || sdkData.result.results?.inference || sdkData.result.results?.run))
+            || sdkData.parameters?.csv_url
+            || sdkData.request?.csv_url;
+
+        const resolvedIndicator = isLandCover ? 'TASKING' : (sdkData.indicator_id || (sdkData.request ? sdkData.request.indicator_id : null) || "11.3.1");
+
+        // Resolve aoi/country name
+        let resolvedAoi = sdkData.aoi_name
+            || sdkData.country
+            || (sdkData.aoi_id && sdkData.aoi_id !== 'custom' ? sdkData.aoi_id : null)
+            || sdkData.request?.aoi_name
+            || sdkData.request?.country
+            || sdkData.parameters?.aoi_name
+            || sdkData.parameters?.country
+            || sdkData.result?.aoi_name
+            || sdkData.result?.country
+            || sdkData.result?.inference?.aoi_name
+            || sdkData.result?.results?.inference?.aoi_name
+            || sdkData.result?.results?.run?.aoi_name;
+
+        if (!resolvedAoi && isLandCover) {
+            resolvedAoi = "Ireland";
+        }
+
         return {
             id: sdkData.job_id,
-            fileId: sdkData.fileId,
-            // Use top-level indicator_id if available, fallback to request, then default
-            indicator_id: sdkData.indicator_id || (sdkData.request ? sdkData.request.indicator_id : null) || "11.3.1",
+            fileId: sdkData.fileId || sdkData.file_id || sdkData.result?.fileId,
+            module_name: sdkData.module_name,
+            indicator_id: resolvedIndicator,
             state: stateMap[sdkData.status?.toLowerCase()] || sdkData.status?.toUpperCase() || 'UNKNOWN',
             submitted_at: sdkData.created_at,
             completed_at: sdkData.completed_at || null,
             error: sdkData.error || null,
-            // Use top-level aoi_id if available, fallback to country or custom
-            aoi_name: sdkData.aoi_id || sdkData.result?.country || sdkData.request?.country || "Custom AOI",
-            aoi_id: sdkData.aoi_id || sdkData.result?.country || sdkData.request?.country || "custom",
+            aoi_name: resolvedAoi || "Global",
+            aoi_id: resolvedAoi || "Global",
+
             date_range_start: sdkData.result?.year_start,
             date_range_end: sdkData.result?.year_end,
             results_data: sdkData.result ? {

@@ -24,9 +24,63 @@ def public_https_url(bucket_name, blob_name):
     return f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
 
 
-EMBEDDINGS = "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL"
-GEE_BAG_FRACTION = 0.5
-MIN_LEAF_POPULATION = 1
+_CONFIG_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "config.yaml")
+)
+
+
+def load_tasking_config() -> dict:
+    """Load configuration from config.yaml, with hardcoded fallbacks to guarantee stability."""
+    defaults = {
+        "datasets": {
+            "embeddings": "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL",
+            "countries": "FAO/GAUL/2015/level0",
+        },
+        "parameters": {
+            "block_crs": "EPSG:6933",
+            "block_size_m": 10000,
+            "test_block_fraction": 0.20,
+            "sampling_scale_m": 10,
+            "points_per_block": [1, 2, 5, 10, 20, "all"],
+            "block_fractions": [0.10, 0.25, 0.50, 0.75, 1.00],
+            "longitude_column": "lon",
+            "latitude_column": "lat",
+            "target_column": "LOI_PCT",
+            "target_threshold": 30.0,
+            "reference_year": 2018,
+            "number_of_trees": 100,
+            "number_of_embedding_bands": 64,
+            "gee_bag_fraction": 0.5,
+            "min_leaf_population": 1,
+            "auc_tolerance": 0.01,
+            "seed": 42,
+        },
+        "runtime": {
+            "plot_dpi": 140,
+            "task_poll_interval_s": 5,
+            "cleanup_max_retries": 5,
+        },
+    }
+    if os.path.exists(_CONFIG_PATH):
+        try:
+            import yaml
+
+            with open(_CONFIG_PATH, "r") as f:
+                loaded = yaml.safe_load(f)
+                if loaded and isinstance(loaded, dict):
+                    for section in ["datasets", "parameters", "runtime"]:
+                        if section in loaded and isinstance(loaded[section], dict):
+                            defaults[section].update(loaded[section])
+        except Exception as e:
+            print(f"[Tasking] Warning: Could not load {_CONFIG_PATH}: {e}")
+    return defaults
+
+
+# Module-level defaults for backward compatibility
+_DEFAULT_CONFIG = load_tasking_config()
+EMBEDDINGS = _DEFAULT_CONFIG["datasets"]["embeddings"]
+GEE_BAG_FRACTION = _DEFAULT_CONFIG["parameters"]["gee_bag_fraction"]
+MIN_LEAF_POPULATION = _DEFAULT_CONFIG["parameters"]["min_leaf_population"]
 
 
 def _run_name(value):
@@ -40,9 +94,11 @@ def _run_name(value):
     return name[:80]
 
 
-def _wait(task):
+def _wait(task, poll_interval=None):
+    if poll_interval is None:
+        poll_interval = load_tasking_config().get("runtime", {}).get("task_poll_interval_s", 5)
     while task.active():
-        time.sleep(5)
+        time.sleep(poll_interval)
     status = task.status()
     if status["state"] != "COMPLETED":
         error_msg = status.get("error_message", str(status))
@@ -93,9 +149,11 @@ def _json_default(value):
     raise TypeError(f"Not JSON serializable: {type(value).__name__}")
 
 
-def _fig_to_base64(fig):
+def _fig_to_base64(fig, dpi=None):
+    if dpi is None:
+        dpi = load_tasking_config().get("runtime", {}).get("plot_dpi", 140)
     buffer = io.BytesIO()
-    fig.savefig(buffer, format="png", dpi=140, bbox_inches="tight")
+    fig.savefig(buffer, format="png", dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     buffer.seek(0)
     return base64.b64encode(buffer.read()).decode("utf-8")
@@ -325,27 +383,57 @@ def _viewer_html(report, results_url):
 
 def run_tasking(config):
     """Run the same reference-model workflow as space_for_time_tasking.ipynb."""
-    run_name = _run_name(config["run_name"])
+    cfg = load_tasking_config()
+    default_params = cfg.get("parameters", {})
+    datasets_cfg = cfg.get("datasets", {})
+    runtime_cfg = cfg.get("runtime", {})
+
+    run_name = _run_name(config.get("run_name"))
     project = config["cloud_project"]
     ee.Initialize(project=project)
 
-    lon = config["longitude_column"]
-    lat = config["latitude_column"]
+    lon = config.get("longitude_column") or default_params.get("longitude_column", "lon")
+    lat = config.get("latitude_column") or default_params.get("latitude_column", "lat")
     block_x = config.get("block_x_column")
     block_y = config.get("block_y_column")
-    block_crs = config.get("block_crs") or "EPSG:6933"
-    target = config["target_column"]
-    threshold = config["target_threshold"]
-    reference_year = config["reference_year"]
-    block_size = config["block_size_m"]
-    test_fraction = config["test_block_fraction"]
-    point_caps = config["points_per_block"]
-    block_fractions = config["block_fractions"]
-    auc_tolerance = config["auc_tolerance"]
-    n_trees = config["number_of_trees"]
-    n_bands = config["number_of_embedding_bands"]
-    scale = config["sampling_scale_m"]
-    seed = config["seed"]
+    block_crs = config.get("block_crs") or default_params.get("block_crs", "EPSG:6933")
+    target = config.get("target_column") or default_params.get("target_column", "LOI_PCT")
+    threshold = (
+        config.get("target_threshold")
+        if config.get("target_threshold") is not None
+        else default_params.get("target_threshold", 30.0)
+    )
+    reference_year = config.get("reference_year") or default_params.get("reference_year", 2018)
+    block_size = config.get("block_size_m") or default_params.get("block_size_m", 10000)
+    test_fraction = (
+        config.get("test_block_fraction")
+        if config.get("test_block_fraction") is not None
+        else default_params.get("test_block_fraction", 0.20)
+    )
+    point_caps = config.get("points_per_block") or default_params.get("points_per_block", [1, 2, 5, 10, 20, "all"])
+    block_fractions = config.get("block_fractions") or default_params.get("block_fractions", [0.10, 0.25, 0.50, 0.75, 1.00])
+    auc_tolerance = (
+        config.get("auc_tolerance")
+        if config.get("auc_tolerance") is not None
+        else default_params.get("auc_tolerance", 0.01)
+    )
+    n_trees = config.get("number_of_trees") or default_params.get("number_of_trees", 100)
+    n_bands = config.get("number_of_embedding_bands") or default_params.get("number_of_embedding_bands", 64)
+    scale = config.get("sampling_scale_m") or default_params.get("sampling_scale_m", 10)
+    seed = config.get("seed") if config.get("seed") is not None else default_params.get("seed", 42)
+
+    embeddings_collection = config.get("embedding_collection") or datasets_cfg.get("embeddings", EMBEDDINGS)
+    gee_bag_fraction = (
+        config.get("gee_bag_fraction")
+        if config.get("gee_bag_fraction") is not None
+        else default_params.get("gee_bag_fraction", GEE_BAG_FRACTION)
+    )
+    min_leaf_population = (
+        config.get("min_leaf_population")
+        if config.get("min_leaf_population") is not None
+        else default_params.get("min_leaf_population", MIN_LEAF_POPULATION)
+    )
+
     bands = [f"A{i:02d}" for i in range(n_bands)]
     variables_per_split = int(np.sqrt(n_bands))
 
@@ -483,7 +571,7 @@ def run_tasking(config):
 
         def embedding(year):
             return (
-                ee.ImageCollection(EMBEDDINGS)
+                ee.ImageCollection(embeddings_collection)
                 .filterDate(f"{year}-01-01", f"{year + 1}-01-01")
                 .mosaic()
                 .select(bands)
@@ -557,7 +645,7 @@ def run_tasking(config):
                 n_estimators=n_trees,
                 max_features="sqrt",
                 random_state=seed,
-                n_jobs=-1,
+                n_jobs=1,
             )
             model.fit(frame[bands], frame.y)
             probability = model.predict_proba(test[bands])[:, 1]
@@ -615,8 +703,8 @@ def run_tasking(config):
             return ee.Classifier.smileRandomForest(
                 numberOfTrees=n_trees,
                 variablesPerSplit=variables_per_split,
-                minLeafPopulation=MIN_LEAF_POPULATION,
-                bagFraction=GEE_BAG_FRACTION,
+                minLeafPopulation=min_leaf_population,
+                bagFraction=gee_bag_fraction,
                 seed=seed,
             )
 
@@ -679,7 +767,7 @@ def run_tasking(config):
                 "name": run_name,
                 "reference_year": reference_year,
                 "seed": seed,
-                "embedding_collection": EMBEDDINGS,
+                "embedding_collection": embeddings_collection,
                 "number_of_embedding_bands": n_bands,
                 "sampling_scale_m": scale,
                 "target_column": target,
@@ -753,8 +841,8 @@ def run_tasking(config):
                 "parameters": {
                     "number_of_trees": n_trees,
                     "variables_per_split": variables_per_split,
-                    "minimum_leaf_population": MIN_LEAF_POPULATION,
-                    "bag_fraction": GEE_BAG_FRACTION,
+                    "minimum_leaf_population": min_leaf_population,
+                    "bag_fraction": gee_bag_fraction,
                     "seed": seed,
                 },
                 "auc": float(gee_auc),
@@ -769,6 +857,20 @@ def run_tasking(config):
                 "roc": _roc_data(gee_fpr, gee_tpr, gee_thresholds),
             },
         }
+        
+        # --- AUTO INFERENCE ---
+        if config.get("aoi_name"):
+            print(f"[Tasking] Auto-triggering inference for AOI: {config['aoi_name']}")
+            try:
+                from pipeline.features.space_for_time_tasking.services.inference_engine import run_inference
+                inference_config = dict(config)
+                inference_config["model_asset_id"] = model_asset
+                inference_res = run_inference(inference_config)
+                report["inference"] = inference_res
+            except Exception as e:
+                print(f"[Tasking] Auto-inference failed: {e}")
+                report["inference"] = {"status": "failed", "error": str(e)}
+
         report_json = json.dumps(report, default=_json_default, separators=(",", ":"))
 
         bucket_name = os.environ["RESULTS_BUCKET"]
@@ -810,12 +912,14 @@ def run_tasking(config):
                 "sklearn_auc": sklearn_metrics["auc"],
                 "earth_engine_auc": float(gee_auc),
             },
+            "inference": report.get("inference"),
             "results": report,
         }
     finally:
         # Temporary Asset Lifecycle Cleanup
+        cleanup_retries = runtime_cfg.get("cleanup_max_retries", 5)
         for asset in assets_to_delete:
-            max_retries = 5
+            max_retries = cleanup_retries
             for attempt in range(max_retries):
                 try:
                     ee.data.deleteAsset(asset)

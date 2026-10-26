@@ -15,14 +15,7 @@ PORT = int(os.getenv("PORT", "3000"))
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 API_BASE_URL = os.getenv("ORBIT_API_BASE_URL", "http://localhost:8000").rstrip("/")
 GCS_BUCKET = os.getenv("GCS_BUCKET", "example-bucket")
-NLC_DEMO_ASSET_ID = os.getenv(
-    "NLC_DEMO_ASSET_ID",
-    "projects/example-project-id/assets/example-asset",
-)
-NLC_DEMO_COG_URL = os.getenv(
-    "NLC_DEMO_COG_URL",
-    "https://storage.googleapis.com/example-bucket/example/path/example.tif",
-)
+
 GCP_PROJECT = os.getenv("GCP_PROJECT", "example-project-id")
 NLC_CLOUD_PROJECT = GCP_PROJECT
 NLC_ASSET_ROOT = os.getenv(
@@ -42,8 +35,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 "window.ORBIT_CONFIG = window.ORBIT_CONFIG || {};\n"
                 f"window.ORBIT_CONFIG.API_BASE_URL = {API_BASE_URL!r};\n"
                 f"window.ORBIT_CONFIG.GCS_BUCKET = {GCS_BUCKET!r};\n"
-                f"window.ORBIT_CONFIG.NLC_DEMO_ASSET_ID = {NLC_DEMO_ASSET_ID!r};\n"
-                f"window.ORBIT_CONFIG.NLC_DEMO_COG_URL = {NLC_DEMO_COG_URL!r};\n"
+
                 f"window.ORBIT_CONFIG.GCP_PROJECT = {GCP_PROJECT!r};\n"
                 f"window.ORBIT_CONFIG.NLC_CLOUD_PROJECT = {NLC_CLOUD_PROJECT!r};\n"
                 f"window.ORBIT_CONFIG.NLC_ASSET_ROOT = {NLC_ASSET_ROOT!r};\n"

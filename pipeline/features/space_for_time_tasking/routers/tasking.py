@@ -47,6 +47,14 @@ def _process_tasking_job(job_id: str, request_data: dict):
 def run_tasking_endpoint(request: TaskingRunRequest, background_tasks: BackgroundTasks):
     from pipeline.api import _jobs, _save_jobs
     import uuid
+
+    aoi_name = (request.aoi_name or "").strip()
+    if not aoi_name or aoi_name.lower() in {"none", "null", "undefined", "select on map", "none (select on map)"}:
+        raise HTTPException(
+            status_code=400,
+            detail="A country must be selected before running the job."
+        )
+
     job_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
 
@@ -60,7 +68,10 @@ def run_tasking_endpoint(request: TaskingRunRequest, background_tasks: Backgroun
         "submitted_at": created_at,
         "updated_at": created_at,
         "indicator_id": "TASKING",
-        "aoi_id": request.aoi_name or request.cloud_project, # User-provided country name
+        "module_name": "national landcover",
+        "aoi_name": aoi_name,
+        "country": aoi_name,
+        "aoi_id": aoi_name,
         "result": {
             "project": request.cloud_project
         },

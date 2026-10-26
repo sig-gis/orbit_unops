@@ -29,10 +29,20 @@ from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
-from dotenv import load_dotenv
-
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(ROOT_DIR, ".env"))
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(ROOT_DIR, ".env"))
+except ImportError:
+    env_path = os.path.join(ROOT_DIR, ".env")
+    if os.path.exists(env_path):
+        with open(env_path, "r") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    if _k.strip() not in os.environ:
+                        os.environ[_k.strip()] = _v.strip()
 
 
 def _required_env(name: str) -> str:
@@ -48,13 +58,18 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
-from titiler.core.factory import TilerFactory
-from titiler.core.errors import add_exception_handlers, DEFAULT_STATUS_CODES
+try:
+    from titiler.core.factory import TilerFactory
+    from titiler.core.errors import add_exception_handlers, DEFAULT_STATUS_CODES
+    import rio_tiler.errors
+    _HAS_TITILER = True
+except ImportError:
+    _HAS_TITILER = False
+
 import google.auth
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from fastapi import Request
 from fastapi.responses import JSONResponse
-import rio_tiler.errors
 
 try:
     from google.cloud import storage
@@ -258,6 +273,9 @@ class ExportStatusResponse(BaseModel):
     fileId: Optional[str] = None
     indicator_id: Optional[str] = None
     aoi_id: Optional[str] = None
+    aoi_name: Optional[str] = None
+    country: Optional[str] = None
+    module_name: Optional[str] = None
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
     created_at: str
     updated_at: str
@@ -278,14 +296,21 @@ class FileDeleteResponse(BaseModel):
 
 
 app = FastAPI(title="UNOPS Export API", version="1.0.0")
-add_exception_handlers(app, DEFAULT_STATUS_CODES)
+if _HAS_TITILER:
+    add_exception_handlers(app, DEFAULT_STATUS_CODES)
 
-from pipeline.features.space_for_time_tasking.routers import tasking
-app.include_router(tasking.router)
+try:
+    from pipeline.features.space_for_time_tasking.routers import tasking
+    from pipeline.features.space_for_time_tasking.routers import inference
+    app.include_router(tasking.router)
+    app.include_router(inference.router)
+except ImportError as e:
+    print(f"Warning: space_for_time_tasking routers could not be loaded: {e}")
 
-@app.exception_handler(rio_tiler.errors.TileOutsideBounds)
-async def tile_outside_bounds_handler(request: Request, exc: Exception):
-    return JSONResponse(status_code=404, content={"detail": str(exc)})
+if _HAS_TITILER:
+    @app.exception_handler(rio_tiler.errors.TileOutsideBounds)
+    async def tile_outside_bounds_handler(request: Request, exc: Exception):
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
 @app.get("/", include_in_schema=False)
@@ -357,6 +382,34 @@ def _normalize_job_record(job_id_hint: Optional[str], job: Dict[str, Any]) -> Di
     normalized["updated_at"] = normalized.get("updated_at") or normalized.get("completed_at") or normalized["created_at"]
     normalized["result"] = normalized.get("result")
     normalized["error"] = normalized.get("error")
+
+    # Indicator resolution (e.g. TASKING for Land Cover, 11.3.1 for SDG 11.3.1)
+    indicator = (
+        normalized.get("indicator_id")
+        or ("TASKING" if normalized.get("module_name") in {"national landcover", "TASKING", "space_for_time_tasking"} else None)
+        or normalized.get("parameters", {}).get("indicator_id")
+        or normalized.get("request", {}).get("indicator_id")
+        or ("TASKING" if "earth_engine" in str(normalized.get("result", {})) or "inference" in str(normalized.get("result", {})) else "11.3.1")
+    )
+    normalized["indicator_id"] = indicator
+    normalized["module_name"] = normalized.get("module_name") or ("national landcover" if indicator == "TASKING" else indicator)
+
+    # Country / AOI resolution
+    aoi = (
+        normalized.get("aoi_name")
+        or normalized.get("aoi_id")
+        or normalized.get("country")
+        or normalized.get("parameters", {}).get("aoi_name")
+        or normalized.get("parameters", {}).get("country")
+        or normalized.get("request", {}).get("aoi_name")
+        or normalized.get("request", {}).get("country")
+        or normalized.get("result", {}).get("aoi_name")
+        or normalized.get("result", {}).get("results", {}).get("inference", {}).get("aoi_name")
+    )
+    normalized["aoi_name"] = aoi or "Global"
+    normalized["aoi_id"] = aoi or "Global"
+    normalized["country"] = aoi or "Global"
+    normalized["request"] = normalized.get("request") or normalized.get("parameters") or {}
     
     # Rewrite gs:// URLs to https:// to force TiTiler to use standard HTTP auth
     if normalized.get("result") and isinstance(normalized["result"], dict) and normalized["result"].get("layers"):
@@ -365,6 +418,7 @@ def _normalize_job_record(job_id_hint: Optional[str], job: Dict[str, Any]) -> Di
                 layer["tile_url"] = layer["tile_url"].replace("gs://", "https://storage.googleapis.com/")
 
     return normalized
+
 
 
 def _rebuild_file_record_from_job(job: Dict[str, Any]) -> None:
@@ -378,31 +432,35 @@ def _rebuild_file_record_from_job(job: Dict[str, Any]) -> None:
     _files[file_id] = {"bucket": bucket, "file_prefix": prefix}
 
 
+# Try loading jobs from PostgreSQL database first
 try:
-    _client = _get_storage_client()
-    _bucket = _client.bucket(_required_env("GCS_BUCKET"))
-    _blob = _bucket.blob("orbit_system/jobs.json")
-    if _blob.exists():
-        loaded_jobs = json.loads(_blob.download_as_text())
-        if isinstance(loaded_jobs, dict):
-            _jobs = {
-                str(job_id): _normalize_job_record(str(job_id), job)
-                for job_id, job in loaded_jobs.items()
-                if isinstance(job, dict)
-            }
+    from pipeline.db import SessionLocal, Job, is_db_configured
+    if is_db_configured():
+        _db = SessionLocal()
+        _db_jobs = _db.query(Job).all()
+        for _j in _db_jobs:
+            _jobs[_j.id] = _normalize_job_record(_j.id, _j.to_dict())
+        _db.close()
+        print(f"Loaded {len(_db_jobs)} job(s) from PostgreSQL database.")
 except Exception as e:
-    print(f"Warning: Could not load jobs from GCS: {e}")
+    print(f"PostgreSQL jobs load warning: {e}")
 
-try:
-    if os.path.exists("jobs.json"):
-        with open("jobs.json", "r") as f:
-            local_jobs = json.load(f)
-        if isinstance(local_jobs, dict):
-            for job_id, job in local_jobs.items():
-                if isinstance(job, dict):
-                    _jobs[str(job_id)] = _normalize_job_record(str(job_id), job)
-except Exception as e:
-    print(f"Warning: Could not load local jobs.json: {e}")
+if not _jobs:
+    try:
+        _client = _get_storage_client()
+        _bucket = _client.bucket(_required_env("GCS_BUCKET"))
+        _blob = _bucket.blob("orbit_system/jobs.json")
+        if _blob.exists():
+            loaded_jobs = json.loads(_blob.download_as_text())
+            if isinstance(loaded_jobs, dict):
+                for job_id, job in loaded_jobs.items():
+                    if isinstance(job, dict) and str(job_id) not in _jobs:
+                        _jobs[str(job_id)] = _normalize_job_record(str(job_id), job)
+    except Exception as e:
+        print(f"Warning: Could not load jobs from GCS: {e}")
+
+
+
 
 for job in _jobs.values():
     _rebuild_file_record_from_job(job)
@@ -482,33 +540,119 @@ def _build_download_url(bucket_name: str, blob_name: str) -> str:
 
 
 def _list_files_for_file_id(file_id: str) -> list[Dict[str, str]]:
-    bucket_name = _required_env("GCS_BUCKET")
-    file_prefix = _required_env("GCS_PREFIX") + f"/{file_id}"
-    client = _get_storage_client()
-    bucket = client.bucket(bucket_name)
+    actual_file_id = file_id
+    target_job = None
+    for jid, jdata in _jobs.items():
+        if jid == file_id or jdata.get("fileId") == file_id or jdata.get("file_id") == file_id or jdata.get("result", {}).get("fileId") == file_id:
+            target_job = jdata
+            actual_file_id = jdata.get("fileId") or jdata.get("file_id") or jdata.get("result", {}).get("fileId") or file_id
+            break
+
+    res = (target_job or {}).get("result") or {}
+    bucket_name = res.get("gcs_bucket") or os.getenv("GCS_BUCKET", "")
+    file_prefix = res.get("gcs_prefix") or (os.getenv("GCS_PREFIX", "exports") + f"/{actual_file_id}")
+    export_name = res.get("export_name") or (target_job or {}).get("parameters", {}).get("export_name") or (target_job or {}).get("request", {}).get("export_name")
+
+    # If outputs dictionary exists (e.g., National Land Cover jobs), return them directly
+    outputs = res.get("outputs") or {}
+    if outputs and isinstance(outputs, dict):
+        output_files = []
+        for key, item in outputs.items():
+            if isinstance(item, dict) and "url" in item:
+                output_files.append({"name": key, "url": item["url"]})
+        if output_files:
+            return output_files
+
+    # Infer export_name if not directly stored for SDG 11.3.1
+    if not export_name and target_job:
+        aoi = res.get("country") or target_job.get("aoi_name") or target_job.get("country")
+        y_start = res.get("year_start") or target_job.get("date_range_start") or target_job.get("parameters", {}).get("year_start")
+        y_end = res.get("year_end") or target_job.get("date_range_end") or target_job.get("parameters", {}).get("year_end")
+        if aoi and y_start and y_end:
+            export_name = f"urban_extent_{aoi}_{y_start}-{y_end}"
+
+    # If export_name is known, construct file list instantly without slow GCS network call
+    if export_name:
+        suffixes = [
+            "_LCRPGR_5yr_10m.csv",
+            "_LCRPGR_annual_10m.csv",
+            "_area10m_smoothed.csv",
+            "_prediction_stats.csv",
+            "_urban_extent.tif",
+        ]
+        files = []
+        clean_prefix = file_prefix.rstrip("/")
+        for s in suffixes:
+            if clean_prefix.endswith(export_name):
+                fname = f"{clean_prefix}{s}"
+            else:
+                fname = f"{clean_prefix}/{export_name}{s}"
+            url = f"https://storage.googleapis.com/{bucket_name}/{fname}"
+            files.append({"name": fname, "url": url})
+        return files
 
     matched_files: list[Dict[str, str]] = []
-    for blob in bucket.list_blobs(prefix=file_prefix or None):
-        if file_id not in blob.name:
-            continue
-        matched_files.append(
-            {
-                "name": blob.name,
-                "url": _build_download_url(bucket_name, blob.name),
-            }
-        )
+    try:
+        client = _get_storage_client()
+        bucket = client.bucket(bucket_name)
+        for blob in bucket.list_blobs(prefix=file_prefix or None):
+            if actual_file_id not in blob.name:
+                continue
+            matched_files.append(
+                {
+                    "name": blob.name,
+                    "url": _build_download_url(bucket_name, blob.name),
+                }
+            )
+    except Exception as e:
+        print(f"Warning: Could not list GCS files for {actual_file_id} in {bucket_name}: {e}")
 
     matched_files.sort(key=lambda item: item["name"])
     return matched_files
 
 
 def _save_jobs():
+    # Persist to PostgreSQL if configured
     try:
-        # local persistence for testing
-        with open("jobs.json", "w") as f:
-            json.dump(_jobs, f)
+        from pipeline.db import SessionLocal, is_db_configured, sync_job_to_db
+        if is_db_configured():
+            _db = SessionLocal()
+            for jid, jdata in _jobs.items():
+                aoi_name = (
+                    jdata.get("aoi_name")
+                    or jdata.get("parameters", {}).get("aoi_name")
+                    or jdata.get("request", {}).get("aoi_name")
+                    or jdata.get("result", {}).get("aoi_name")
+                    or jdata.get("country")
+                    or jdata.get("aoi_id")
+                )
+                sync_job_to_db(
+                    db=_db,
+                    job_id=str(jid),
+                    status=jdata.get("status") or "queued",
+                    module_name=jdata.get("module_name") or jdata.get("indicator_id"),
+                    aoi_name=aoi_name,
+                    parameters=jdata.get("parameters") or jdata.get("request") or {},
+                    result=jdata.get("result"),
+                    error=jdata.get("error"),
+                    credits_used=float(jdata.get("credits_used", 0.0) or 0.0),
+                )
+            _db.close()
     except Exception as e:
-        print(f"Local persistence error: {e}")
+        print(f"PostgreSQL persistence error: {e}")
+
+
+    try:
+        # Sync to Google Cloud Storage (GCS) so jobs don't disappear on Cloud Run restart
+        _client = _get_storage_client()
+        _bucket = _client.bucket(_required_env("GCS_BUCKET"))
+        _blob = _bucket.blob("orbit_system/jobs.json")
+        _blob.upload_from_string(json.dumps(_jobs), content_type="application/json", timeout=5)
+
+    except Exception as e:
+        print(f"GCS persistence error: {e}")
+        
+
 
 def _set_job(job_id: str, data: Dict[str, Any]) -> None:
     with _jobs_lock:
@@ -681,6 +825,13 @@ def get_models(project: Optional[str] = None, indicator: Optional[str] = None) -
 
 @app.post("/exports", response_model=ExportStatusResponse, status_code=202)
 def create_export(request: ExportRequest, background_tasks: BackgroundTasks) -> ExportStatusResponse:
+    country = (request.country or "").strip()
+    if not country and not request.aoi_geojson:
+        raise HTTPException(
+            status_code=400,
+            detail="A country or AOI boundary must be selected before running the analysis job."
+        )
+
     job_id = str(uuid4())
     file_id = str(uuid4())
     created_at = utc_now_iso()
@@ -716,6 +867,13 @@ def retry_export(job_id: str, background_tasks: BackgroundTasks) -> ExportStatus
         
         if not job.get("request"):
             raise HTTPException(status_code=400, detail="Cannot retry: original request payload not found")
+
+        if job.get("indicator_id") == "TASKING":
+            _set_job(job_id, {"status": "queued", "error": None})
+            from pipeline.features.space_for_time_tasking.routers.tasking import _process_tasking_job
+            background_tasks.add_task(_process_tasking_job, job_id, job["request"])
+            with _jobs_lock:
+                return ExportStatusResponse(**job)
 
         request_obj = ExportRequest(**job["request"])
         
@@ -979,12 +1137,43 @@ def proxy_csv(url: str):
     """Proxy endpoint to bypass CORS when fetching CSVs from GCS in the browser."""
     if not url.startswith("https://storage.googleapis.com/"):
         raise HTTPException(status_code=400, detail="Only storage.googleapis.com URLs are allowed")
-    try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
-            return Response(content=response.read(), media_type="text/csv")
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=f"File not found or failed to fetch: {str(e)}")
+    
+    path = url.replace("https://storage.googleapis.com/", "")
+    parts = path.split("/", 1)
+    bucket_name = parts[0]
+    blob_name = parts[1] if len(parts) > 1 else ""
+
+    buckets_to_try = [bucket_name]
+    env_gcs_bucket = os.getenv("GCS_BUCKET")
+    if env_gcs_bucket and env_gcs_bucket not in buckets_to_try:
+        buckets_to_try.append(env_gcs_bucket)
+    env_results_bucket = os.getenv("RESULTS_BUCKET")
+    if env_results_bucket and env_results_bucket not in buckets_to_try:
+        buckets_to_try.append(env_results_bucket)
+
+    # 1. Try direct HTTP fetch (fast, no IAM overhead)
+    for b in buckets_to_try:
+        try:
+            target_url = f"https://storage.googleapis.com/{b}/{blob_name}"
+            req = urllib.request.Request(target_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                return Response(content=response.read(), media_type="text/csv")
+        except Exception:
+            pass
+
+    # 2. Fall back to authenticated GCS client
+    for b in buckets_to_try:
+        try:
+            client = _get_storage_client()
+            bucket = client.bucket(b)
+            blob = bucket.blob(blob_name)
+            if blob.exists():
+                content = blob.download_as_bytes()
+                return Response(content=content, media_type="text/csv")
+        except Exception:
+            pass
+
+    raise HTTPException(status_code=404, detail=f"File not found or failed to fetch: {url}")
 
 @app.get("/proxy-html")
 def proxy_html(url: str):

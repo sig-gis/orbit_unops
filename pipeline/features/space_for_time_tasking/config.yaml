@@ -1,0 +1,33 @@
+# Configuration for National Land Cover (Space-for-Time Tasking) pipeline
+datasets:
+  embeddings: "GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL"
+  countries: "FAO/GAUL/2015/level0"
+
+parameters:
+  # Spatial blocking & sampling
+  block_crs: "EPSG:6933"
+  block_size_m: 10000
+  test_block_fraction: 0.20
+  sampling_scale_m: 10
+  points_per_block: [1, 2, 5, 10, 20, "all"]
+  block_fractions: [0.10, 0.25, 0.50, 0.75, 1.00]
+
+  # Default ground truth mapping
+  longitude_column: "lon"
+  latitude_column: "lat"
+  target_column: "LOI_PCT"
+  target_threshold: 30.0
+  reference_year: 2018
+
+  # Random Forest classifier hyperparameters
+  number_of_trees: 100
+  number_of_embedding_bands: 64
+  gee_bag_fraction: 0.5
+  min_leaf_population: 1
+  auc_tolerance: 0.01
+  seed: 42
+
+runtime:
+  plot_dpi: 140
+  task_poll_interval_s: 5
+  cleanup_max_retries: 5
