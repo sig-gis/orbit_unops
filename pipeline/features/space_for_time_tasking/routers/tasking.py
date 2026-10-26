@@ -5,7 +5,8 @@ import csv
 import io
 import os
 import ee
-from fastapi import APIRouter, BackgroundTasks, File, UploadFile, HTTPException
+from fastapi import APIRouter, BackgroundTasks, File, Form, UploadFile, HTTPException
+from pipeline.features.space_for_time_tasking.services.csv_validation import validate_csv
 from datetime import datetime, timezone
 from google.cloud import storage
 
@@ -87,9 +88,14 @@ def run_tasking_endpoint(request: TaskingRunRequest, background_tasks: Backgroun
 
 
 @router.post("/upload", response_model=UploadResponse)
-def upload_csv(file: UploadFile = File(...)):
-    if not file.filename.endswith(".csv"):
+def upload_csv(file: UploadFile = File(...), latitude_column: str = Form(...), longitude_column: str = Form(...), target_column: str = Form(...)):
+    if not (file.filename or '').lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported.")
+    contents = file.file.read()
+    try:
+        validate_csv(contents, latitude_column, longitude_column, target_column)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     bucket_name = os.environ.get("NLC_UPLOAD_BUCKET") or os.environ.get("RESULTS_BUCKET")
     if not bucket_name:
         raise HTTPException(
@@ -105,14 +111,14 @@ def upload_csv(file: UploadFile = File(...)):
         blob = bucket.blob(object_name)
         
         # Read the file contents from FastAPI and upload
-        contents = file.file.read()
 
         import pandas as pd
         import io
-        df = pd.read_csv(io.BytesIO(contents))
-        if ".geo" in df.columns:
+        df = pd.read_csv(io.BytesIO(contents), keep_default_na=False)
+        selected_columns = {latitude_column, longitude_column, target_column}
+        if ".geo" in df.columns and ".geo" not in selected_columns:
             df = df.drop(columns=[".geo"])
-        if "system:index" in df.columns:
+        if "system:index" in df.columns and "system:index" not in selected_columns:
             df = df.drop(columns=["system:index"])
             
         contents = df.to_csv(index=False).encode("utf-8")

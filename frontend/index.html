@@ -338,6 +338,7 @@
                                 Point Data (.csv)</label>
                             <input type="file" id="nlc-file-upload" class="form-input" accept=".csv"
                                 style="margin-top: 5px;">
+                            <div id="nlc-upload-error" role="alert" style="display:none; margin-top:8px; font-size:0.85rem;"></div>
                         </div>
 
                         <div id="nlc-source-gee-container" style="display:none;">
@@ -398,6 +399,12 @@
                     <button class="btn-primary full-width" id="btn-load-nlc-data" style="margin-top: 1rem;">
                         <i data-lucide="upload-cloud" class="icon"></i> Load Data
                     </button>
+
+                    <div id="nlc-validation-message" role="alert" style="display:none; margin-top:8px; font-size:0.85rem;"></div>
+                    <div id="nlc-warning-actions" hidden style="margin-top:8px;">
+                        <button type="button" class="btn-primary" id="nlc-warning-continue">Continue anyway</button>
+                        <button type="button" class="btn-secondary" id="nlc-warning-cancel">Cancel</button>
+                    </div>
 
                     <button class="btn-primary full-width" id="btn-submit-nlc-job" style="margin-top: 1rem; display:none;">
                         <i data-lucide="cpu" class="icon"></i> Run Classification

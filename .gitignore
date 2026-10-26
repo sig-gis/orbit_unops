@@ -35,8 +35,11 @@ deploy.ps1
 *.pdf
 test_*.py
 *_test.py
-tests/
-test/
+!/tests/
+/tests/*
+# !/tests/test_csv_validation.py
+# !/tests/csv_validation.test.mjs
+test/*
 
 # Credentials
 credentials/

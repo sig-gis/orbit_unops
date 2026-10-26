@@ -1,9 +1,10 @@
 import { State } from './state.js';
 
-export const uploadCSV = async (file) => {
+export const uploadCSV = async (file, columns) => {
     const baseUrl = (window.ORBIT_CONFIG && window.ORBIT_CONFIG.API_BASE_URL) || 'http://localhost:8000';
     const formData = new FormData();
     formData.append('file', file);
+    ['latitude_column', 'longitude_column', 'target_column'].forEach(name => formData.append(name, columns[name]));
     
     const response = await fetch(`${baseUrl}/api/tasking/upload`, {
         method: 'POST',

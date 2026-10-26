@@ -1,12 +1,50 @@
 import { State } from './state.js';
-import { parseCSVHeaders, parseCSVData } from './utils/csv.js';
+import { readCSV, validateCSVRows, assessCountryOrientation } from './utils/validation.js';
 import { submitLandCoverJob, fetchGeeColumns, fetchGcsColumns, uploadCSV } from './api.js';
 
 export const UI = {
     panel: null,
+    validationVersion: 0,
+    validated: false,
+    pendingPoints: null,
+
+    showValidation(message = '', warning = false, upload = false) {
+        const el = document.getElementById(upload ? 'nlc-upload-error' : 'nlc-validation-message');
+        el.textContent = message;
+        el.style.color = warning ? '#d4a017' : '#dc2626';
+        el.style.display = message ? 'block' : 'none';
+    },
+
+    resetValidation() {
+        this.validationVersion++;
+        this.validated = false;
+        this.pendingPoints = null;
+        this.showValidation();
+        document.getElementById('nlc-warning-actions').hidden = true;
+        document.getElementById('btn-submit-nlc-job').style.display = 'none';
+        document.getElementById('nlc-recommendations-section').style.display = 'none';
+        const btn = document.getElementById('btn-load-nlc-data');
+        btn.style.display = '';
+        btn.disabled = false;
+        btn.textContent = 'Load Data';
+        if (window.nlcGroundTruthLayer && typeof MapModule !== 'undefined') MapModule.map.removeLayer(window.nlcGroundTruthLayer);
+        if (window.nlcGroundTruthLegend && typeof MapModule !== 'undefined') MapModule.map.removeControl(window.nlcGroundTruthLegend);
+        window.nlcGroundTruthLayer = null;
+        window.nlcGroundTruthLegend = null;
+    },
 
     init() {
         this.panel = document.getElementById('nlc-panel');
+        ['nlc-map-lat', 'nlc-map-lon', 'nlc-map-target'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => this.resetValidation());
+        });
+        document.getElementById('nlc-warning-continue').addEventListener('click', () => {
+            const points = this.pendingPoints;
+            this.pendingPoints = null;
+            document.getElementById('nlc-warning-actions').hidden = true;
+            if (points) this.loadData(points);
+        });
+        document.getElementById('nlc-warning-cancel').addEventListener('click', () => this.resetValidation());
 
         const closeBtn = document.getElementById('nlc-panel-close');
         if (closeBtn) {
@@ -55,12 +93,14 @@ export const UI = {
         if (typeof App !== 'undefined') {
             const originalSelect = App.selectCountry;
             App.selectCountry = function (countryName, updateDropdown) {
+                UI.resetValidation();
                 if (originalSelect) originalSelect.call(App, countryName, updateDropdown);
                 const nlcCountry = document.getElementById('nlc-country-name');
                 if (nlcCountry) nlcCountry.textContent = countryName;
             };
             const originalDeselect = App.deselectCountry;
             App.deselectCountry = function () {
+                UI.resetValidation();
                 if (originalDeselect) originalDeselect.call(App);
                 const nlcCountry = document.getElementById('nlc-country-name');
                 if (nlcCountry) nlcCountry.textContent = 'None (Select on map)';
@@ -130,6 +170,7 @@ export const UI = {
     },
 
     handleSourceTabClick(event) {
+        this.resetValidation();
         const btn = event.target;
         const source = btn.dataset.nlcSource;
         State.customSourceType = source;
@@ -159,18 +200,25 @@ export const UI = {
     },
 
     async handleFileUpload(event) {
+        this.resetValidation();
+        this.showValidation('', false, true);
+        State.file = null;
+        State.headers = [];
+        document.getElementById('nlc-mapping-section').style.display = 'none';
         const file = event.target.files[0];
         if (!file) return;
-
-        State.file = file;
+        const version = this.validationVersion;
         try {
-            const headers = await parseCSVHeaders(file);
+            const { headers } = await readCSV(file);
+            if (version !== this.validationVersion) return;
+            State.file = file;
             State.headers = headers;
             this.populateMappingDropdowns(headers);
             document.getElementById('nlc-mapping-section').style.display = 'block';
             document.getElementById('nlc-mapping-dropdowns').style.display = 'flex';
         } catch (error) {
-            if (typeof Toast !== 'undefined') Toast.show('Failed to parse CSV headers', 'error');
+            if (version !== this.validationVersion) return;
+            this.showValidation(error.message, false, true);
             console.error(error);
         }
     },
@@ -233,7 +281,12 @@ export const UI = {
     },
 
     populateMappingDropdowns(headers) {
-        const createOptions = () => headers.map(h => `<option value="${h}">${h}</option>`).join('');
+        const createOptions = () => headers.map(h => {
+            const option = document.createElement('option');
+            option.value = h;
+            option.textContent = h;
+            return option.outerHTML;
+        }).join('');
         const optionsHtml = createOptions();
 
         const mapLat = document.getElementById('nlc-map-lat');
@@ -256,17 +309,40 @@ export const UI = {
         if (targetMatch) mapTarget.value = targetMatch;
     },
 
-    async loadData() {
+    async loadData(approvedPoints = null) {
         if (!State.file) {
-            if (typeof Toast !== 'undefined') Toast.show('Please upload a CSV file first', 'error');
+            this.showValidation('Please upload a CSV file first.');
             return;
         }
-
+        const version = this.validationVersion;
         const btn = document.getElementById('btn-load-nlc-data');
+        btn.disabled = true;
         if (btn) btn.innerHTML = '<span class="processing-dots"><span></span><span></span><span></span></span> Loading...';
 
         try {
-            const data = await parseCSVData(State.file);
+            if (!App.currentCountry) throw new Error('Please select a country before loading data.');
+            let data = approvedPoints;
+            if (!Array.isArray(data)) {
+                this.showValidation();
+                this.pendingPoints = null;
+                document.getElementById('nlc-warning-actions').hidden = true;
+                const { rows } = await readCSV(State.file);
+                if (version !== this.validationVersion) return;
+                data = validateCSVRows(rows, {
+                    lat: document.getElementById('nlc-map-lat').value,
+                    lon: document.getElementById('nlc-map-lon').value,
+                    target: document.getElementById('nlc-map-target').value
+                });
+                const { outside, hint } = assessCountryOrientation(data, App.currentCountry, window.countriesGeoJSON, window.turf);
+                const message = `${outside} of ${data.length} points do not intersect the selected country, ${App.currentCountry}.${hint}`;
+                if (outside === data.length) throw new Error(`${message} Check the country and coordinate columns.`);
+                if (outside) {
+                    this.showValidation(`${message} Continue with all points?`, true);
+                    this.pendingPoints = data;
+                    document.getElementById('nlc-warning-actions').hidden = false;
+                    return;
+                }
+            }
 
             // Plot points on MapModule.map
             if (typeof MapModule !== 'undefined' && MapModule.map) {
@@ -280,10 +356,10 @@ export const UI = {
 
                 // Render up to 5000 points to avoid browser lag
                 const maxPoints = 5000;
-                const sampleRate = Math.max(1, Math.floor(data.length / maxPoints));
+                const sampleRate = Math.max(1, Math.ceil(data.length / maxPoints));
 
                 data.forEach((row, i) => {
-                    if (row.lat && row.lon) {
+                    if (Number.isFinite(row.lat) && Number.isFinite(row.lon)) {
                         validPointsCount++;
                         if (row.block_id) {
                             blocks[row.block_id] = true;
@@ -292,7 +368,7 @@ export const UI = {
                         // Plot a sample of points
                         if (i % sampleRate === 0) {
                             // Assume target >= 0.5 is one class, else another
-                            const targetVal = parseFloat(row.target || row.class || row.y || row.label || row.loi_pct || 0);
+                            const targetVal = row.target;
                             const isPeat = !isNaN(targetVal) && targetVal >= 0.5;
                             const color = isPeat ? '#E85C0E' : '#4A90E2';
                             
@@ -309,7 +385,7 @@ export const UI = {
 
                 // Zoom to points
                 if (data.length > 0) {
-                    const bounds = L.latLngBounds(data.map(r => [r.lat, r.lon]).filter(c => c[0] && c[1]));
+                    const bounds = L.latLngBounds(data.map(r => [r.lat, r.lon]));
                     MapModule.map.fitBounds(bounds, { padding: [20, 20] });
                 }
 
@@ -346,21 +422,33 @@ export const UI = {
 
                 document.getElementById('nlc-recommendations-section').style.display = 'block';
                 document.getElementById('btn-submit-nlc-job').style.display = 'flex';
+                this.validated = true;
                 if (btn) btn.style.display = 'none'; // Hide Load Data button
 
                 if (typeof Toast !== 'undefined') Toast.show(`Loaded ${data.length} points for tasking`, 'success');
             }
         } catch (error) {
+            if (version !== this.validationVersion) return;
             console.error(error);
-            if (typeof Toast !== 'undefined') Toast.show('Failed to load data points', 'error');
+            this.showValidation(error.message);
             if (btn) {
                 btn.innerHTML = '<i data-lucide="upload-cloud" class="icon"></i> Load Data';
                 if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+        } finally {
+            if (version === this.validationVersion) {
+                btn.disabled = false;
+                btn.textContent = 'Load Data';
             }
         }
     },
 
     async submitJob() {
+        const version = this.validationVersion;
+        if (State.customSourceType === 'csv' && !this.validated) {
+            this.showValidation('Please load and validate the CSV before running classification.');
+            return;
+        }
         const btn = document.getElementById('btn-submit-nlc-job');
         let selectedCountry = (typeof App !== 'undefined' && App.currentCountry) ? App.currentCountry.trim() : '';
         if (!selectedCountry) {
@@ -400,7 +488,9 @@ export const UI = {
             if (State.customSourceType === 'csv') {
                 if (!State.file) throw new Error("Please load data first.");
                 // Upload the CSV to the backend and get the GCS URI
-                const uploadResponse = await uploadCSV(State.file);
+                const uploadResponse = await uploadCSV(State.file, payload);
+                if (version !== this.validationVersion || !this.validated) throw new Error('Inputs changed during upload. Load and validate the CSV again.');
+                payload.target_threshold = 0.5;
                 payload.csv_url = uploadResponse.gcs_uri;
             } else if (State.customSourceType === 'gee') {
                 payload.input_asset_id = document.getElementById('nlc-gee-asset').value.trim();
