@@ -85,7 +85,11 @@ export function assessCountryOrientation(points, country, countries, spatial) {
 }
 
 export function countOutsideCountry(points, country, countries, spatial) {
+    return points.length - pointsInsideCountry(points, country, countries, spatial).length;
+}
+
+export function pointsInsideCountry(points, country, countries, spatial) {
     const features = countries?.features.filter(f => f.properties.nam_en === country);
     if (!features?.length || !spatial) throw new Error('Country boundary is unavailable. Reload the page and try again.');
-    return points.filter(p => !features.some(f => spatial.booleanPointInPolygon(spatial.point([p.lon, p.lat]), f, { ignoreBoundary: false }))).length;
+    return points.filter(p => features.some(f => spatial.booleanPointInPolygon(spatial.point([p.lon, p.lat]), f, { ignoreBoundary: false })));
 }

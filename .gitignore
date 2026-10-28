@@ -37,6 +37,8 @@ test_*.py
 *_test.py
 !/tests/
 /tests/*
+# !/tests/grid.test.mjs
+# !/tests/grid_ui.test.mjs
 # !/tests/test_csv_validation.py
 # !/tests/csv_validation.test.mjs
 test/*

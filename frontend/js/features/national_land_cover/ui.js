@@ -1,5 +1,6 @@
 import { State } from './state.js';
-import { readCSV, validateCSVRows, assessCountryOrientation } from './utils/validation.js';
+import { readCSV, validateCSVRows, assessCountryOrientation, pointsInsideCountry } from './utils/validation.js';
+import { buildGrid, gridCSV } from './utils/grid.js';
 import { submitLandCoverJob, fetchGeeColumns, fetchGcsColumns, uploadCSV } from './api.js';
 
 export const UI = {
@@ -7,6 +8,66 @@ export const UI = {
     validationVersion: 0,
     validated: false,
     pendingPoints: null,
+    loadedPoints: null,
+    grid: null,
+    gridTimer: null,
+    gridInputMode: 'blocks',
+
+    scheduleGridUpdate(mode) {
+        this.gridInputMode = mode;
+        this.validationVersion++;
+        this.grid = null;
+        document.getElementById('btn-submit-nlc-job').disabled = true;
+        clearTimeout(this.gridTimer);
+        this.gridTimer = setTimeout(() => this.updateGrid(), 250);
+    },
+
+    updateGrid() {
+        if (!this.loadedPoints) return;
+        this.grid = null;
+        const submit = document.getElementById('btn-submit-nlc-job');
+        submit.disabled = true;
+        for (const id of ['nlc-rec-size', 'nlc-rec-blocks', 'nlc-rec-training-blocks', 'nlc-rec-validation-blocks', 'nlc-rec-points', 'nlc-rec-ppb']) {
+            document.getElementById(id).textContent = '—';
+        }
+        if (window.nlcGridLayer) MapModule.map.removeLayer(window.nlcGridLayer);
+        window.nlcGridLayer = null;
+        try {
+            const targetInput = document.getElementById('nlc-target-blocks');
+            const sizeInput = document.getElementById('nlc-cell-size');
+            const grid = buildGrid(this.loadedPoints, Number(targetInput.value),
+                this.gridInputMode === 'size' ? Number(sizeInput.value) : null);
+            sizeInput.value = String(grid.size);
+            if (this.gridInputMode === 'size') targetInput.value = String(grid.cells.length);
+            if (grid.cells.length > 1000) {
+                throw new Error(`This cell size produces ${grid.cells.length.toLocaleString()} occupied blocks, exceeding the 1,000-block display limit. Increase cell size or reduce target blocks.`);
+            }
+            window.nlcGridLayer = L.layerGroup().addTo(MapModule.map);
+            for (const cell of grid.cells) {
+                L.rectangle(cell.bounds, { color: '#FFD700', weight: 2, fillOpacity: 0.04 })
+                    .bindTooltip(`${cell.count} points (0: ${cell.count - cell.positive}, 1: ${cell.positive})`)
+                    .addTo(window.nlcGridLayer).bringToBack();
+            }
+            this.grid = grid;
+            document.getElementById('nlc-rec-loaded').textContent = this.loadedPoints.length.toLocaleString();
+            document.getElementById('nlc-rec-size').textContent = `${grid.size.toLocaleString()} m`;
+            document.getElementById('nlc-rec-blocks').textContent = grid.cells.length.toLocaleString();
+            // For an integer block count at 20%, no half-integer ties occur;
+            // this matches Python's max(1, round(0.2 * len(blocks))).
+            const validationBlocks = Math.max(1, Math.round(0.2 * grid.cells.length));
+            document.getElementById('nlc-rec-training-blocks').textContent = (grid.cells.length - validationBlocks).toLocaleString();
+            document.getElementById('nlc-rec-validation-blocks').textContent = validationBlocks.toLocaleString();
+            document.getElementById('nlc-rec-points').textContent = grid.points.length.toLocaleString();
+            document.getElementById('nlc-rec-ppb').textContent = grid.average.toLocaleString(undefined, { maximumFractionDigits: 1 });
+            this.showValidation(grid.cells.length !== Number(document.getElementById('nlc-target-blocks').value)
+                ? `Closest grid found: ${grid.cells.length} occupied blocks. An exact target is not always possible.` : '', true);
+            if (grid.cells.length < 2) throw new Error('At least two occupied blocks are needed for a training/validation split.');
+            submit.disabled = false;
+        } catch (error) {
+            this.grid = null;
+            this.showValidation(error.message);
+        }
+    },
 
     showValidation(message = '', warning = false, upload = false) {
         const el = document.getElementById(upload ? 'nlc-upload-error' : 'nlc-validation-message');
@@ -16,6 +77,11 @@ export const UI = {
     },
 
     resetValidation() {
+        clearTimeout(this.gridTimer);
+        this.loadedPoints = null;
+        this.grid = null;
+        if (window.nlcGridLayer && typeof MapModule !== 'undefined') MapModule.map.removeLayer(window.nlcGridLayer);
+        window.nlcGridLayer = null;
         this.validationVersion++;
         this.validated = false;
         this.pendingPoints = null;
@@ -26,7 +92,7 @@ export const UI = {
         const btn = document.getElementById('btn-load-nlc-data');
         btn.style.display = '';
         btn.disabled = false;
-        btn.textContent = 'Load Data';
+        btn.textContent = 'Load Points';
         if (window.nlcGroundTruthLayer && typeof MapModule !== 'undefined') MapModule.map.removeLayer(window.nlcGroundTruthLayer);
         if (window.nlcGroundTruthLegend && typeof MapModule !== 'undefined') MapModule.map.removeControl(window.nlcGroundTruthLegend);
         window.nlcGroundTruthLayer = null;
@@ -35,6 +101,8 @@ export const UI = {
 
     init() {
         this.panel = document.getElementById('nlc-panel');
+        document.getElementById('nlc-target-blocks').addEventListener('input', () => this.scheduleGridUpdate('blocks'));
+        document.getElementById('nlc-cell-size').addEventListener('input', () => this.scheduleGridUpdate('size'));
         ['nlc-map-lat', 'nlc-map-lon', 'nlc-map-target'].forEach(id => {
             document.getElementById(id).addEventListener('change', () => this.resetValidation());
         });
@@ -310,6 +378,10 @@ export const UI = {
     },
 
     async loadData(approvedPoints = null) {
+        if (State.customSourceType !== 'csv') {
+            this.showValidation('Grid preview requires a local CSV. Export your remote points to CSV to use this workflow.');
+            return;
+        }
         if (!State.file) {
             this.showValidation('Please upload a CSV file first.');
             return;
@@ -337,12 +409,16 @@ export const UI = {
                 const message = `${outside} of ${data.length} points do not intersect the selected country, ${App.currentCountry}.${hint}`;
                 if (outside === data.length) throw new Error(`${message} Check the country and coordinate columns.`);
                 if (outside) {
-                    this.showValidation(`${message} Continue with all points?`, true);
+                    this.showValidation(`${message} Continue using only points inside the country?`, true);
                     this.pendingPoints = data;
                     document.getElementById('nlc-warning-actions').hidden = false;
                     return;
                 }
             }
+
+            data = pointsInsideCountry(data, App.currentCountry, window.countriesGeoJSON, window.turf);
+            if (new Set(data.map(point => point.target)).size !== 2) throw new Error('In-country points must contain both classes: 0 and 1.');
+            this.loadedPoints = data;
 
             // Plot points on MapModule.map
             if (typeof MapModule !== 'undefined' && MapModule.map) {
@@ -351,20 +427,12 @@ export const UI = {
                 }
                 window.nlcGroundTruthLayer = L.layerGroup().addTo(MapModule.map);
 
-                let blocks = {};
-                let validPointsCount = 0;
-
                 // Render up to 5000 points to avoid browser lag
                 const maxPoints = 5000;
                 const sampleRate = Math.max(1, Math.ceil(data.length / maxPoints));
 
                 data.forEach((row, i) => {
                     if (Number.isFinite(row.lat) && Number.isFinite(row.lon)) {
-                        validPointsCount++;
-                        if (row.block_id) {
-                            blocks[row.block_id] = true;
-                        }
-
                         // Plot a sample of points
                         if (i % sampleRate === 0) {
                             // Assume target >= 0.5 is one class, else another
@@ -413,12 +481,7 @@ export const UI = {
                 legendControl.addTo(MapModule.map);
                 window.nlcGroundTruthLegend = legendControl;
 
-                // Show dynamic recommendations
-                const totalBlocks = Object.keys(blocks).length;
-                document.getElementById('nlc-rec-ppb').textContent = "5"; // Default configurable recommendation
-                document.getElementById('nlc-rec-mbf').textContent = "0.5";
-                document.getElementById('nlc-rec-points').textContent = validPointsCount.toLocaleString();
-                document.getElementById('nlc-rec-blocks').textContent = totalBlocks > 0 ? totalBlocks.toLocaleString() : "N/A";
+                this.updateGrid();
 
                 document.getElementById('nlc-recommendations-section').style.display = 'block';
                 document.getElementById('btn-submit-nlc-job').style.display = 'flex';
@@ -432,20 +495,20 @@ export const UI = {
             console.error(error);
             this.showValidation(error.message);
             if (btn) {
-                btn.innerHTML = '<i data-lucide="upload-cloud" class="icon"></i> Load Data';
+                btn.innerHTML = '<i data-lucide="upload-cloud" class="icon"></i> Load Points';
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             }
         } finally {
             if (version === this.validationVersion) {
                 btn.disabled = false;
-                btn.textContent = 'Load Data';
+                btn.textContent = 'Load Points';
             }
         }
     },
 
     async submitJob() {
         const version = this.validationVersion;
-        if (State.customSourceType === 'csv' && !this.validated) {
+        if (State.customSourceType === 'csv' && (!this.validated || !this.grid)) {
             this.showValidation('Please load and validate the CSV before running classification.');
             return;
         }
@@ -487,8 +550,15 @@ export const UI = {
 
             if (State.customSourceType === 'csv') {
                 if (!State.file) throw new Error("Please load data first.");
+                const grid = this.grid;
+                Object.assign(payload, {
+                    latitude_column: 'lat', longitude_column: 'lon', target_column: 'target',
+                    block_x_column: 'block_x_m', block_y_column: 'block_y_m',
+                    block_crs: 'EPSG:3857', block_size_m: grid.size,
+                    loaded_points: grid.points.length
+                });
                 // Upload the CSV to the backend and get the GCS URI
-                const uploadResponse = await uploadCSV(State.file, payload);
+                const uploadResponse = await uploadCSV(new File([gridCSV(grid)], 'in_country_points.csv', { type: 'text/csv' }), payload);
                 if (version !== this.validationVersion || !this.validated) throw new Error('Inputs changed during upload. Load and validate the CSV again.');
                 payload.target_threshold = 0.5;
                 payload.csv_url = uploadResponse.gcs_uri;

@@ -809,6 +809,26 @@ const Jobs = {
             // Populate recommendations
             const summary = job.result?.summary || {};
             const selection = results.selection || {};
+            const stats = document.getElementById('nlc-completed-grid-stats');
+            if (stats) {
+                stats.replaceChildren();
+                const average = selection.production_blocks > 0
+                    ? selection.production_points / selection.production_blocks : null;
+                const values = [
+                    ['Loaded points', results.input?.loaded_points],
+                    ['Cell size (projected m)', results.run?.block_size_m],
+                    ['Production blocks', selection.production_blocks],
+                    ['Production points', selection.production_points],
+                    ['Points per block (average)', average],
+                    ['Min block fraction', selection.recommended_minimum_block_fraction ?? summary.recommended_minimum_block_fraction],
+                    ['Selected point cap per block', selection.points_per_block]
+                ];
+                for (const [label, value] of values) {
+                    const row = document.createElement('div');
+                    row.textContent = `${label}: ${value == null ? 'Not available' : typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 3 }) : value}`;
+                    stats.appendChild(row);
+                }
+            }
 
             // Populate Accuracy metrics
             const eeMetrics = results.earth_engine || {};

@@ -48,6 +48,7 @@ class TaskingRunRequest(BaseModel):
     reference_year: int = 2018
 
     block_size_m: int = 10_000
+    loaded_points: Optional[int] = Field(default=None, ge=0)
     test_block_fraction: float = 0.20
     points_per_block: list[Union[int, str]] = Field(
         default_factory=lambda: [1, 2, 5, 10, 20, "all"]

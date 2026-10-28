@@ -795,6 +795,7 @@ def run_tasking(config):
                 "classifier": model_asset,
             },
             "input": {
+                "loaded_points": config.get("loaded_points"),
                 "n_observations": len(reference),
                 "n_positive": int(reference.y.sum()),
                 "positive_fraction": float(reference.y.mean()),

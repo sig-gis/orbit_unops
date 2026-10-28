@@ -215,6 +215,7 @@
                     </div>
 
                     <div id="nlc-native-results" style="flex: 1; display: flex; flex-direction: column; overflow-y: auto;">
+                        <div id="nlc-completed-grid-stats" style="padding:15px; margin-bottom:15px; background:var(--bg-primary); border-radius:8px;"></div>
                         <!-- ROC Chart -->
                         <div style="background: var(--bg-primary); padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid var(--border-light);">
                             <h4 style="margin-bottom: 10px; color: var(--brand-secondary); font-size: 0.9rem;"><i data-lucide="activity" class="icon sm"></i> ROC Curve</h4>
@@ -377,27 +378,38 @@
                     </div>
 
                     <div id="nlc-recommendations-section" style="display:none; margin-bottom: 1rem; padding: 10px; background: var(--bg-primary); border-radius: 6px; border: 1px solid var(--border-color);">
-                        <h4 style="margin-bottom: 10px; font-size: 0.85rem;"><i data-lucide="check-square" class="icon sm" style="color:var(--brand-secondary);"></i> Tasking Recommendations</h4>
+                        <h4 style="margin-bottom: 10px; font-size: 0.85rem;">Grid Preview</h4>
+                        <label for="nlc-target-blocks">Target blocks</label>
+                        <input id="nlc-target-blocks" class="form-input" type="number" min="2" max="1000" step="1" value="50" aria-describedby="nlc-grid-help">
+                        <label for="nlc-cell-size">Cell size (projected meters)</label>
+                        <input id="nlc-cell-size" class="form-input" type="number" min="1" step="1" aria-describedby="nlc-grid-help">
+                        <p id="nlc-grid-help" style="font-size:0.75rem; color:var(--text-muted); margin:12px 0;">Edit target blocks to calculate cell size, or enter an exact cell size to update the occupied-block count. Target blocks are approximate (2–1,000). Preview counts use in-country points; final counts may change after feature filtering and point capping. Cell sizes are projected meters (EPSG:3857).</p>
+                        <div style="display:flex; justify-content:space-between; font-size:0.8rem;"><span>Loaded points:</span><span id="nlc-rec-loaded">0</span></div>
+                        <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-top:5px;"><span>Cell size:</span><span id="nlc-rec-size">—</span></div>
                         <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main);">
-                            <span>Points per block:</span>
-                            <span id="nlc-rec-ppb" style="font-weight: 600;">0</span>
+                            <span>Production blocks:</span>
+                            <span id="nlc-rec-blocks" style="font-weight: 600;">0</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main); margin-top: 5px;">
-                            <span>Min block fraction:</span>
-                            <span id="nlc-rec-mbf" style="font-weight: 600;">0</span>
+                            <span>Training blocks:</span>
+                            <span id="nlc-rec-training-blocks" style="font-weight: 600;">0</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main); margin-top: 5px;">
-                            <span>Production Points:</span>
+                            <span>Validation blocks:</span>
+                            <span id="nlc-rec-validation-blocks" style="font-weight: 600;">0</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main); margin-top: 5px;">
+                            <span>Production points:</span>
                             <span id="nlc-rec-points" style="font-weight: 600;">0</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main); margin-top: 5px;">
-                            <span>Production Blocks:</span>
-                            <span id="nlc-rec-blocks" style="font-weight: 600;">0</span>
+                            <span>Average points per block:</span>
+                            <span id="nlc-rec-ppb" style="font-weight: 600;">0</span>
                         </div>
                     </div>
 
                     <button class="btn-primary full-width" id="btn-load-nlc-data" style="margin-top: 1rem;">
-                        <i data-lucide="upload-cloud" class="icon"></i> Load Data
+                        <i data-lucide="upload-cloud" class="icon"></i> Load Points
                     </button>
 
                     <div id="nlc-validation-message" role="alert" style="display:none; margin-top:8px; font-size:0.85rem;"></div>
