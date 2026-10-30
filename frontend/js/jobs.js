@@ -136,6 +136,7 @@ const Jobs = {
         if (paramEnd) paramEnd.value = today.toISOString().split('T')[0];
     },
     async openWizard() {
+        if (!window.OrbitFeatures.sdgEnabled) return;
         this.currentStep = 1;
         this._updateStepUI();
         this._loadAOIOptions();
@@ -1182,6 +1183,7 @@ const Jobs = {
 
 
     async _viewJobLayers(jobRef) {
+        if (!window.OrbitFeatures.isJobVisible(jobRef)) return;
         this._clearJobOverlays();
         // Switch to map view
         App.navigate('map');

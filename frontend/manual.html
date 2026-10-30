@@ -223,6 +223,8 @@
             .manual-content { padding: 16px; }
         }
     </style>
+    <script src="/js/features.js"></script>
+    <link rel="stylesheet" href="/css/features.css">
 </head>
 <body>
 
@@ -237,10 +239,10 @@
     <div class="manual-nav-inner">
         <a href="#getting-started">Getting Started</a>
         <a href="#map-layers">Map & Layers</a>
-        <a href="#urban-expansion">Urban Expansion</a>
+        <a href="#urban-expansion" data-sdg-ui>Urban Expansion</a>
         <a href="#jobs">Jobs</a>
         <a href="#analytics">Analytics</a>
-        <a href="#detection">Detection</a>
+        <a href="#detection" data-sdg-ui>Detection</a>
         <a href="#faq">FAQ</a>
     </div>
 </nav>
@@ -278,7 +280,7 @@
             <li><strong>Sidebar (left)</strong> — Navigation, layer toggles, theme switch, user info</li>
             <li><strong>Header (top)</strong> — AOI selector, New Job button, GEE status</li>
             <li><strong>Map (center)</strong> — Interactive Leaflet map with satellite imagery</li>
-            <li><strong>Panels (right)</strong> — Layer legend, Urban expansion timeline</li>
+            <li data-sdg-ui><strong>Panels (right)</strong> — Layer legend, Urban expansion timeline</li>
             <li><strong>Stats bar (bottom)</strong> — Live AOI metrics from Earth Engine</li>
         </ul>
     </section>
@@ -296,7 +298,7 @@
             <tr><td><strong>Sentinel-2 True Color</strong></td><td>Cloud-free satellite photo (s2cloudless masked)</td><td>ON</td></tr>
             <tr><td><strong>NDVI — Vegetation Index</strong></td><td>Green = healthy vegetation, Red = bare/stressed</td><td>OFF</td></tr>
             <tr><td><strong>Change Detection</strong></td><td>Green = vegetation gain, Red = vegetation loss</td><td>OFF</td></tr>
-            <tr><td><strong>Urban Extent (Dynamic World)</strong></td><td>Built-up probability from DL embeddings</td><td>OFF</td></tr>
+            <tr data-sdg-ui><td><strong>Urban Extent (Dynamic World)</strong></td><td>Built-up probability from DL embeddings</td><td>OFF</td></tr>
             <tr><td><strong>Elevation (SRTM 30m)</strong></td><td>Terrain height above sea level</td><td>OFF</td></tr>
         </table>
 
@@ -309,14 +311,14 @@
         <ul>
             <li><strong>Area (km²)</strong> — Geographic size of the AOI</li>
             <li><strong>Mean NDVI</strong> — Average vegetation health (0–1 scale)</li>
-            <li><strong>Urban %</strong> — Built-up fraction (Dynamic World)</li>
+            <li data-sdg-ui><strong>Urban %</strong> — Built-up fraction (Dynamic World)</li>
             <li><strong>Vegetation %</strong> — Estimated vegetation coverage</li>
             <li><strong>Source</strong> — Data pipeline identifier</li>
         </ul>
     </section>
 
     <!-- 3. Urban Expansion -->
-    <section id="urban-expansion">
+    <section id="urban-expansion" data-sdg-ui>
         <h2>3. Urban Expansion Analysis</h2>
         <p>The flagship SDG 11.3.1 feature. Click <strong>Urban Expansion</strong> in the sidebar to open the analysis panel. If you are on a different view (e.g. Jobs), it will <strong>automatically switch to the Map View</strong> first, then open the panel.</p>
 
@@ -393,6 +395,7 @@ LCRPGR = LCR / PGR</pre>
     <section id="jobs">
         <h2>4. Creating & Managing Jobs</h2>
 
+        <div data-sdg-ui>
         <h3>Job Submission Wizard</h3>
         <p>Click <strong>+ New Job</strong> in the header. The 4-step wizard guides you through:</p>
         <ol>
@@ -405,6 +408,7 @@ LCRPGR = LCR / PGR</pre>
             <strong>Tip:</strong> You can also submit jobs via the AI assistant using natural language. Example: <em>"Run urban expansion analysis on Geneva"</em>. AI-submitted jobs are fully tracked in <strong>Jobs</strong> and <strong>Job History</strong>.
         </div>
 
+        </div>
         <h3>Job State Machine</h3>
         <div class="state-flow">
             <span class="state-box">PENDING</span>
@@ -431,7 +435,7 @@ LCRPGR = LCR / PGR</pre>
     </section>
 
     <!-- 4.5. AI Assistant -->
-    <section id="ai-assistant">
+    <section id="ai-assistant" data-sdg-ui>
         <h2>5. AI Assistant (COMPASS AI)</h2>
         <p>The platform includes an AI-powered assistant using <strong>Google Gemini</strong> via <strong>Vertex AI</strong> (no API key required — authenticated via IAM/ADC). Open it by clicking <strong>COMPASS AI</strong> in the sidebar.</p>
 
@@ -480,7 +484,7 @@ LCRPGR = LCR / PGR</pre>
     </section>
 
     <!-- 6. Detection -->
-    <section id="detection">
+    <section id="detection" data-sdg-ui>
         <h2>6. How Detection Works</h2>
 
         <h3>Primary: Dynamic World Embeddings</h3>
@@ -540,8 +544,8 @@ LCRPGR = LCR / PGR</pre>
         <h3>Can I see imagery from a specific date?</h3>
         <p>Map layers show 6-month median composites for maximum coverage. For date-specific analysis, create a job with your desired date range.</p>
 
-        <h3>Why does the expansion chart show different values for different AOIs?</h3>
-        <p>Urban area is computed per-AOI. Smaller AOIs (e.g. Usaquén at 65 km²) will naturally show less total urban area than the full Bogotá Metropolitan Area at 1,587 km².</p>
+        <h3 data-sdg-ui>Why does the expansion chart show different values for different AOIs?</h3>
+        <p data-sdg-ui>Urban area is computed per-AOI. Smaller AOIs (e.g. Usaquén at 65 km²) will naturally show less total urban area than the full Bogotá Metropolitan Area at 1,587 km².</p>
 
         <h3>How accurate is the cost estimate?</h3>
         <p>Estimates are heuristic-based (EECU coefficients × area × resolution). Actual costs may vary ±30%.</p>

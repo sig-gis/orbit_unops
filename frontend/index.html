@@ -33,6 +33,8 @@
     <script src="https://unpkg.com/georaster"></script>
     <script src="https://unpkg.com/georaster-layer-for-leaflet/dist/georaster-layer-for-leaflet.min.js"></script>
 
+    <script src="/js/features.js"></script>
+    <link rel="stylesheet" href="/css/features.css">
     <!-- App CSS -->
     <link rel="stylesheet" href="/css/design-system.css?v=27July26">
     <link rel="stylesheet" href="/css/layout.css?v=27July26">
@@ -78,8 +80,8 @@
                 <span class="nav-label">National Land Map Tasking</span>
             </a>
 
-            <div class="nav-divider"></div>
-            <div
+            <div class="nav-divider" data-sdg-ui></div>
+            <div data-sdg-ui
                 style="padding: 0 1.5rem; margin-bottom: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600;">
                 SDG Indicators</div>
             <a class="nav-item sdg-toggle-btn" id="btn-sdg-11" data-indicator="11.3.1"
@@ -627,10 +629,10 @@
 
     <!-- SDG Plugins -->
     <script type="module">
-        import SDG1131Plugin from '/js/indicators/sdg_11_3_1/index.js?v=16Sep26-1';
         import NLCPlugin from '/js/features/national_land_cover/index.js?v=16Sep26-1';
-        document.addEventListener('DOMContentLoaded', () => {
-            if (typeof SDG !== 'undefined') {
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (window.OrbitFeatures.sdgEnabled && typeof SDG !== 'undefined') {
+                const { default: SDG1131Plugin } = await import('/js/indicators/sdg_11_3_1/index.js?v=16Sep26-1');
                 SDG.registerPlugin('11.3.1', SDG1131Plugin);
 
                 // Mock plugins for 9.1.1 and 15.3.1

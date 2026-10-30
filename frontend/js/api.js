@@ -46,13 +46,14 @@ const API = {
 
     // ── Jobs ──
     async listIndicators() {
+        if (!window.OrbitFeatures.sdgEnabled) return {};
         return this.get('/indicators');
     },
 
     async listJobs(params = {}) {
         try {
             const data = await this.get('/exports');
-            const jobs = data.map(job => this._mapSdkJobToUiJob(job));
+            const jobs = data.map(job => this._mapSdkJobToUiJob(job)).filter(job => window.OrbitFeatures.isJobVisible(job));
             return jobs.sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at));
         } catch (e) {
             console.warn("Could not load global jobs list", e);

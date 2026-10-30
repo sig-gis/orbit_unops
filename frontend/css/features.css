@@ -1,0 +1,8 @@
+/* Retain markup, but prevent inline display styles from reopening disabled UI. */
+html.sdg-disabled [data-sdg-ui],
+html.sdg-disabled .sdg-toggle-btn,
+html.sdg-disabled #sdg-panel,
+html.sdg-disabled #sdg-panel-restore,
+html.sdg-disabled #job-modal {
+    display: none !important;
+}

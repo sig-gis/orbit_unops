@@ -7,12 +7,14 @@ const SDG = {
     activeIndicator: null,
 
     registerPlugin(indicatorId, plugin) {
+        if (!window.OrbitFeatures.sdgEnabled) return;
         this.plugins[indicatorId] = plugin;
         console.log(`[IndicatorManager] Registered plugin for SDG ${indicatorId}`);
         plugin.init(); // Initialize the plugin's UI/Events
     },
 
     init() {
+        if (!window.OrbitFeatures.sdgEnabled) return;
         // Bind sidebar toggle buttons
         document.querySelectorAll('.sdg-toggle-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -23,6 +25,7 @@ const SDG = {
     },
 
     toggleIndicator(indicatorId, btnElement) {
+        if (!window.OrbitFeatures.sdgEnabled) return;
         if (this.activeIndicator === indicatorId) {
             // Close it
             this.closeCurrentIndicator();
@@ -84,6 +87,7 @@ const SDG = {
     // ═══ Interface for App.js ═══
 
     onCountrySelected(countryName) {
+        if (!window.OrbitFeatures.sdgEnabled) return;
         if (!this.activeIndicator) return;
         const plugin = this.plugins[this.activeIndicator];
         if (plugin && plugin.onCountrySelected) {
@@ -92,6 +96,7 @@ const SDG = {
     },
 
     onCountryDeselected() {
+        if (!window.OrbitFeatures.sdgEnabled) return;
         if (!this.activeIndicator) return;
         const plugin = this.plugins[this.activeIndicator];
         if (plugin && plugin.onCountryDeselected) {
