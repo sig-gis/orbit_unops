@@ -1074,9 +1074,29 @@ const Jobs = {
                 }
             };
             
+            document.getElementById('nlc-toggle-grid').onchange = (e) => {
+                if (typeof MapModule !== 'undefined' && window.nlcGridLayer) {
+                    if (e.target.checked) {
+                        window.nlcGridLayer.addTo(MapModule.map);
+                    } else {
+                        MapModule.map.removeLayer(window.nlcGridLayer);
+                    }
+                }
+            };
+
             nlcAnalyticsPanel.dataset.hooked = 'true';
         }
         
+        const gridToggleContainer = document.getElementById('nlc-grid-toggle-container');
+        const gridToggleInput = document.getElementById('nlc-toggle-grid');
+        gridToggleInput.checked = false;
+        if (window.nlcGridLayer && typeof MapModule !== 'undefined') {
+            gridToggleContainer.style.display = 'flex';
+            MapModule.map.removeLayer(window.nlcGridLayer);
+        } else {
+            gridToggleContainer.style.display = 'none';
+        }
+
         // Reset and manage Ground Truth toggle state for this viewing session
         const toggleContainer = document.getElementById('nlc-ground-truth-toggle-container');
         const toggleInput = document.getElementById('nlc-toggle-ground-truth');
