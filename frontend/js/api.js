@@ -172,6 +172,7 @@ const API = {
                 "land_consumption_pct": "Check Downloads"
             } : null,
             result: sdkData.result || null,
+            request: sdkData.request || sdkData.parameters || {},
             layers: (sdkData.result?.layers || []).map(layer => {
                 // If the layer is already marked as a COG URL, prepend the base URL
                 if (layer.is_cog) {

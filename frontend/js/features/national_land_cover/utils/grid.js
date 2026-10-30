@@ -1,5 +1,18 @@
 // Match the backend's origin-aligned floor(x / size), floor(y / size) grid.
 const R = 6378137;
+// Keep backend grid dimensions in whole meters; the UI accepts projected km².
+export function areaToCellSize(areaKm2) {
+    const size = Math.round(Math.sqrt(areaKm2) * 1000);
+    if (!Number.isFinite(areaKm2) || areaKm2 < 0.000001 || !Number.isSafeInteger(size) || size < 1) {
+        throw new Error('Cell area must be a finite number of at least 0.000001 projected km² with a supported whole-meter side length.');
+    }
+    return size;
+}
+
+export function cellSizeToArea(size) {
+    return size * size / 1000000;
+}
+
 export function projectPoint(point) {
     if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon) || Math.abs(point.lat) >= 85.05112878) {
         throw new Error('Grid preview supports latitudes between -85.05112878 and 85.05112878 degrees.');

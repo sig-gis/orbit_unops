@@ -189,16 +189,17 @@
                 </div>
                 <div id="nlc-ground-truth-toggle-container" style="display:none; justify-content:flex-end; margin-bottom: 10px;">
                     <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-main);">
-                        <input type="checkbox" id="nlc-toggle-ground-truth"> Show Ground Truth Points
+                        <input type="checkbox" id="nlc-toggle-ground-truth"> Show Input Points
                     </label>
                 </div>
 
                 <div id="nlc-grid-toggle-container" style="display:none; justify-content:flex-end; margin-bottom: 10px;">
                     <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-main);">
-                        <input type="checkbox" id="nlc-toggle-grid"> Show Grid
+                        <input type="checkbox" id="nlc-toggle-grid"> Show Sampling Grid
                     </label>
                 </div>
 
+                <p id="nlc-overlay-status" role="status" style="font-size:0.75rem; color:var(--text-muted);"></p>
                 <div style="flex: 1; display: flex; flex-direction: column; width: 100%;">
                     
                     <div id="nlc-analytics-metrics"
@@ -387,11 +388,11 @@
                         <h4 style="margin-bottom: 10px; font-size: 0.85rem;">Grid Preview</h4>
                         <label for="nlc-target-blocks">Target blocks</label>
                         <input id="nlc-target-blocks" class="form-input" type="number" min="2" max="1000" step="1" value="50" aria-describedby="nlc-grid-help">
-                        <label for="nlc-cell-size">Cell size (projected meters)</label>
-                        <input id="nlc-cell-size" class="form-input" type="number" min="1" step="1" aria-describedby="nlc-grid-help">
-                        <p id="nlc-grid-help" style="font-size:0.75rem; color:var(--text-muted); margin:12px 0;">Edit target blocks to calculate cell size, or enter an exact cell size to update the occupied-block count. Target blocks are approximate (2–1,000). Preview counts use in-country points; final counts may change after feature filtering and point capping. Cell sizes are projected meters (EPSG:3857).</p>
+                        <label for="nlc-cell-size">Cell area (projected km²)</label>
+                        <input id="nlc-cell-size" class="form-input" type="number" min="0.000001" step="any" aria-describedby="nlc-grid-help">
+                        <p id="nlc-grid-help" style="font-size:0.75rem; color:var(--text-muted); margin:12px 0;">Edit target blocks to calculate cell area, or enter cell area in km² to update the occupied-block count. For example, 1 km² makes a 1,000 m × 1,000 m cell. Side lengths are rounded to whole meters; the resulting area is shown. Areas use projected coordinates (EPSG:3857), not exact ground areas. Target blocks are approximate (2–1,000). Preview counts use in-country points; final counts may change after feature filtering and point capping.</p>
                         <div style="display:flex; justify-content:space-between; font-size:0.8rem;"><span>Loaded points:</span><span id="nlc-rec-loaded">0</span></div>
-                        <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-top:5px;"><span>Cell size:</span><span id="nlc-rec-size">—</span></div>
+                        <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-top:5px;"><span>Cell area (projected):</span><span id="nlc-rec-size">—</span></div>
                         <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-main);">
                             <span>Production blocks:</span>
                             <span id="nlc-rec-blocks" style="font-weight: 600;">0</span>

@@ -756,7 +756,61 @@ const Jobs = {
 
 
 
+    _clearJobOverlays() {
+        this._nlcViewVersion = (this._nlcViewVersion || 0) + 1;
+        this._overlayController?.abort();
+        this._overlayController = null;
+        for (const key of ['nlcGridLayer', 'nlcGroundTruthLayer']) {
+            if (window[key] && typeof MapModule !== 'undefined') MapModule.map.removeLayer(window[key]);
+            window[key] = null;
+        }
+        if (window.nlcGroundTruthLegend && typeof MapModule !== 'undefined') MapModule.map.removeControl(window.nlcGroundTruthLegend);
+        window.nlcGroundTruthLegend = null;
+        for (const id of ['nlc-toggle-ground-truth', 'nlc-toggle-grid']) {
+            const input = document.getElementById(id);
+            if (input) { input.checked = false; input.disabled = true; }
+        }
+    },
+
+    async _restoreJobOverlays(job) {
+        const controller = new AbortController();
+        this._overlayController = controller;
+        const status = document.getElementById('nlc-overlay-status');
+        status.textContent = 'Loading saved input points and sampling grid…';
+        try {
+            const { loadJobOverlays } = await import('./features/national_land_cover/utils/job_overlays.js');
+            if (controller.signal.aborted) return;
+            const data = await loadJobOverlays(job, API.baseUrl, controller.signal);
+            if (controller.signal.aborted || this._overlayController !== controller) return;
+            window.nlcGroundTruthLayer = L.layerGroup();
+            const stride = Math.max(1, Math.ceil(data.points.length / 5000));
+            data.points.forEach((point, index) => {
+                if (index % stride) return;
+                const color = point.target >= data.threshold ? '#E85C0E' : '#4A90E2';
+                L.circleMarker([point.lat, point.lon], { radius: 4, color, fillColor: color, fillOpacity: 0.8, weight: 1 })
+                    .bindTooltip(`Input class: ${point.target}`)
+                    .addTo(window.nlcGroundTruthLayer);
+            });
+            document.getElementById('nlc-toggle-ground-truth').disabled = false;
+            if (data.cells.length) {
+                window.nlcGridLayer = L.layerGroup();
+                for (const cell of data.cells) {
+                    L.rectangle(cell.bounds, { color: '#FFD700', weight: 2, fillOpacity: 0.04 })
+                        .bindTooltip(`${cell.count} input points`).addTo(window.nlcGridLayer);
+                }
+                document.getElementById('nlc-toggle-grid').disabled = false;
+            }
+            status.textContent = `Saved input overlays (before feature filtering and point capping). Showing ${Math.ceil(data.points.length / stride).toLocaleString()} of ${data.points.length.toLocaleString()} points. Orange: at/above class threshold; blue: below. ${data.gridError}`;
+        } catch (error) {
+            if (!controller.signal.aborted && this._overlayController === controller) {
+                status.textContent = error.message;
+            }
+        }
+    },
+
     async _viewNLCResults(job) {
+        this._clearJobOverlays();
+        const viewVersion = this._nlcViewVersion;
         const results = job.result?.results || job.result;
 
         // Switch to map view
@@ -816,7 +870,7 @@ const Jobs = {
                     ? selection.production_points / selection.production_blocks : null;
                 const values = [
                     ['Loaded points', results.input?.loaded_points],
-                    ['Cell size (projected m)', results.run?.block_size_m],
+                    ['Cell area (projected km²)', results.run?.block_size_m != null ? results.run.block_size_m ** 2 / 1000000 : null],
                     ['Production blocks', selection.production_blocks],
                     ['Production points', selection.production_points],
                     ['Points per block (average)', average],
@@ -825,7 +879,7 @@ const Jobs = {
                 ];
                 for (const [label, value] of values) {
                     const row = document.createElement('div');
-                    row.textContent = `${label}: ${value == null ? 'Not available' : typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 3 }) : value}`;
+                    row.textContent = `${label}: ${value == null ? 'Not available' : typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: label === 'Cell area (projected km²)' ? 6 : 3 }) : value}`;
                     stats.appendChild(row);
                 }
             }
@@ -954,9 +1008,12 @@ const Jobs = {
                     
                     // 1. Fetch bounds from TiTiler to zoom the map
                     const boundsUrl = `${API.baseUrl}/cog/bounds?url=${encodeURIComponent(inferenceMapUrl)}`;
+                    if (viewVersion !== this._nlcViewVersion) return;
                     const boundsResponse = await fetch(boundsUrl);
+                    if (viewVersion !== this._nlcViewVersion) return;
                     if (boundsResponse.ok) {
                         const boundsData = await boundsResponse.json();
+                        if (viewVersion !== this._nlcViewVersion) return;
                         // bounds is [minx, miny, maxx, maxy] (lng, lat)
                         if (boundsData.bounds) {
                             const [minx, miny, maxx, maxy] = boundsData.bounds;
@@ -1007,6 +1064,7 @@ const Jobs = {
                     
                     document.getElementById('nlc-analytics-area').textContent = 'Map Loaded';
                 } catch (err) {
+                    if (viewVersion !== this._nlcViewVersion) return;
                     console.error("TiTiler error:", err);
                     document.getElementById('nlc-analytics-area').textContent = 'Map Error';
                 }
@@ -1039,9 +1097,11 @@ const Jobs = {
             };
         }
 
+        if (viewVersion !== this._nlcViewVersion) return;
         // Hook up panel buttons if not already hooked
         if (!nlcAnalyticsPanel.dataset.hooked) {
             document.getElementById('nlc-analytics-panel-close').onclick = () => {
+                this._clearJobOverlays();
                 nlcAnalyticsPanel.style.display = 'none';
                 if (window.nlcRasterLayer && typeof MapModule !== 'undefined') {
                     MapModule.map.removeLayer(window.nlcRasterLayer);
@@ -1108,10 +1168,21 @@ const Jobs = {
         } else {
             toggleContainer.style.display = 'none';
         }
+        // Controls remain visible with an explanatory status when a saved source is unavailable.
+        for (const [container, input] of [
+            ['nlc-ground-truth-toggle-container', 'nlc-toggle-ground-truth'],
+            ['nlc-grid-toggle-container', 'nlc-toggle-grid']
+        ]) {
+            document.getElementById(container).style.display = 'flex';
+            document.getElementById(input).checked = false;
+            document.getElementById(input).disabled = true;
+        }
+        this._restoreJobOverlays(job);
     },
 
 
     async _viewJobLayers(jobRef) {
+        this._clearJobOverlays();
         // Switch to map view
         App.navigate('map');
 

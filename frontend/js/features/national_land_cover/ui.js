@@ -1,6 +1,6 @@
 import { State } from './state.js';
 import { readCSV, validateCSVRows, assessCountryOrientation, pointsInsideCountry } from './utils/validation.js';
-import { buildGrid, gridCSV } from './utils/grid.js';
+import { buildGrid, gridCSV, areaToCellSize, cellSizeToArea } from './utils/grid.js';
 import { submitLandCoverJob, fetchGeeColumns, fetchGcsColumns, uploadCSV } from './api.js';
 
 export const UI = {
@@ -36,11 +36,11 @@ export const UI = {
             const targetInput = document.getElementById('nlc-target-blocks');
             const sizeInput = document.getElementById('nlc-cell-size');
             const grid = buildGrid(this.loadedPoints, Number(targetInput.value),
-                this.gridInputMode === 'size' ? Number(sizeInput.value) : null);
-            sizeInput.value = String(grid.size);
+                this.gridInputMode === 'size' ? areaToCellSize(Number(sizeInput.value)) : null);
+            sizeInput.value = String(cellSizeToArea(grid.size));
             if (this.gridInputMode === 'size') targetInput.value = String(grid.cells.length);
             if (grid.cells.length > 1000) {
-                throw new Error(`This cell size produces ${grid.cells.length.toLocaleString()} occupied blocks, exceeding the 1,000-block display limit. Increase cell size or reduce target blocks.`);
+                throw new Error(`This cell area produces ${grid.cells.length.toLocaleString()} occupied blocks, exceeding the 1,000-block display limit. Increase cell area or reduce target blocks.`);
             }
             window.nlcGridLayer = L.layerGroup().addTo(MapModule.map);
             for (const cell of grid.cells) {
@@ -50,7 +50,7 @@ export const UI = {
             }
             this.grid = grid;
             document.getElementById('nlc-rec-loaded').textContent = this.loadedPoints.length.toLocaleString();
-            document.getElementById('nlc-rec-size').textContent = `${grid.size.toLocaleString()} m`;
+            document.getElementById('nlc-rec-size').textContent = `${cellSizeToArea(grid.size).toLocaleString(undefined, { maximumFractionDigits: 6 })} km²`;
             document.getElementById('nlc-rec-blocks').textContent = grid.cells.length.toLocaleString();
             // For an integer block count at 20%, no half-integer ties occur;
             // this matches Python's max(1, round(0.2 * len(blocks))).
