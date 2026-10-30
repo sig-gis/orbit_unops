@@ -460,10 +460,10 @@ def run_tasking(config):
     _assert_assets_absent(assets_to_check)
 
     assets_to_delete = []
-    gcs_blobs_to_delete = []
+    # Retain the source CSV: saved reports reference it for input-point/grid
+    # overlays and retries. Only the temporary Earth Engine copy is disposable.
     
     if csv_url:
-        gcs_blobs_to_delete.append(csv_url)
         assets_to_delete.append(point_asset)
     assets_to_delete.extend([sample_asset, model_asset])
 
@@ -917,7 +917,7 @@ def run_tasking(config):
             "results": report,
         }
     finally:
-        # Temporary Asset Lifecycle Cleanup
+        # Temporary Earth Engine assets only; never delete the saved input CSV.
         cleanup_retries = runtime_cfg.get("cleanup_max_retries", 5)
         for asset in assets_to_delete:
             max_retries = cleanup_retries
@@ -932,15 +932,3 @@ def run_tasking(config):
                         time.sleep(sleep_time)
                     else:
                         print(f"Failed to delete temporary GEE asset {asset} after {max_retries} attempts: {e}")
-                
-        for gcs_uri in gcs_blobs_to_delete:
-            try:
-                if gcs_uri.startswith("gs://"):
-                    parts = gcs_uri[5:].split("/", 1)
-                    if len(parts) == 2:
-                        client = storage.Client()
-                        bucket = client.bucket(parts[0])
-                        blob = bucket.blob(parts[1])
-                        blob.delete()
-            except Exception as e:
-                print(f"Failed to delete temporary GCS blob {gcs_uri}: {e}")
